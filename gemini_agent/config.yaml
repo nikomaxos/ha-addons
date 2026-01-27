@@ -1,0 +1,21 @@
+name: "HA AI Middleware"
+version: "1.0.0"
+slug: "ha_ai_middleware"
+description: "Gemini AI Agent with full local access to config and history."
+url: "https://github.com/nikomaxos/ha-ai-middleware"
+arch:
+  - aarch64
+  - amd64
+  - armv7
+startup: application
+boot: manual
+map:
+  - "config:rw"
+options:
+  gemini_api_key: ""
+  prompt_entity: "input_text.gemini_prompt"
+schema:
+  gemini_api_key: str
+  prompt_entity: str
+homeassistant_api: true
+image: "python:3.11-alpine"
