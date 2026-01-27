@@ -41,11 +41,26 @@ def get_ha_state(entity_id):
     res = call_ha_api(f"states/{entity_id}")
     return res.get("state", "") if res else ""
 
-# --- THE CONSTRUCTOR (AUTOMATION INSTALLER) ---
+# --- LOG READER (CRITICAL FIX) ---
+def get_system_logs():
+    """Reads the actual text log file properly."""
+    log_files = ["/config/home-assistant.log.1", "/config/home-assistant.log"]
+    logs = ""
+    for log_path in log_files:
+        if os.path.exists(log_path):
+            try:
+                with open(log_path, "r") as f:
+                    lines = f.readlines()
+                    # Παίρνουμε τις τελευταίες 40 γραμμές που έχουν τη λέξη ERROR ή WARNING
+                    filtered = [line for line in lines[-100:] if "ERROR" in line or "WARNING" in line]
+                    if not filtered: filtered = lines[-20:] # Fallback
+                    logs += f"--- LOG FILE: {log_path} ---\n" + "".join(filtered) + "\n"
+            except: pass
+    return logs[:5000]
+
+# --- THE CONSTRUCTOR (No changes needed here, v3 is good) ---
 def install_infrastructure():
     print("👷 Checking Infrastructure...")
-    
-    # ΔΙΟΡΘΩΜΕΝΟΣ ΑΥΤΟΜΑΤΙΣΜΟΣ
     jarvis_automation_yaml = """
 # --- JARVIS AI AUTO-GENERATED AUTOMATION (FIXED v3) ---
 - id: 'jarvis_voice_loop_v3'
@@ -55,19 +70,14 @@ def install_infrastructure():
   - platform: event
     event_type: jarvis_response
   action:
-  # 1. Speak the response
   - service: tts.google_translate_say
     data:
       entity_id: all
       message: "{{ trigger.event.data.text }}"
-  
-  # 2. Smart Delay (Wait for speech to finish)
   - delay:
       hours: 0
       minutes: 0
       seconds: "{{ (trigger.event.data.text | length / 11) | int + 2 }}"
-  
-  # 3. Re-open Microphone (Fixed Logic)
   - if:
       - condition: template
         value_template: "{{ states.assist_satellite | count > 0 }}"
@@ -85,68 +95,61 @@ def install_infrastructure():
     try:
         current_content = ""
         if os.path.exists(AUTOMATIONS_FILE):
-            with open(AUTOMATIONS_FILE, "r") as f:
-                current_content = f.read()
-        
-        # Check if v3 is installed
+            with open(AUTOMATIONS_FILE, "r") as f: current_content = f.read()
         if "id: 'jarvis_voice_loop_v3'" not in current_content:
             print("⚙️ Injecting Fixed Automation (v3)...")
-            with open(AUTOMATIONS_FILE, "a") as f:
-                f.write("\n" + jarvis_automation_yaml)
-            
-            print("🔄 Reloading Automations...")
+            with open(AUTOMATIONS_FILE, "a") as f: f.write("\n" + jarvis_automation_yaml)
             call_ha_api("services/automation/reload", "POST")
-            print("✅ Infrastructure Updated.")
-        else:
-            print("✅ Infrastructure is up to date.")
-            
-    except Exception as e:
-        print(f"❌ Failed to install infrastructure: {e}")
+    except: pass
 
-# --- MEMORY SYSTEM (SYNTAX FIXED) ---
+# --- MEMORY SYSTEM ---
 def load_memory():
     if os.path.exists(MEMORY_FILE):
-        try:
-            with open(MEMORY_FILE, "r") as f:
-                return json.load(f)
-        except:
-            return []
+        try: with open(MEMORY_FILE, "r") as f: return json.load(f)
+        except: return []
     return []
 
 def save_memory(user, agent):
     mem = load_memory()
     mem.append({"timestamp": datetime.datetime.now().isoformat(), "user": user, "agent": agent})
     if len(mem) > 30: mem = mem[-30:]
-    with open(MEMORY_FILE, "w") as f:
-        json.dump(mem, f, indent=2)
+    with open(MEMORY_FILE, "w") as f: json.dump(mem, f, indent=2)
 
 def get_memory_string():
     mem = load_memory()
     return "\n".join([f"User: {m['user']}\nAI: {m['agent']}" for m in mem[-4:]])
 
-# --- MAIN LOGIC ---
+# --- MAIN LOGIC (SAFETY UPDATE) ---
 def analyze_and_reply(user_input):
     print("🧠 Thinking...")
     memory = get_memory_string()
     
-    # Simplified State Fetching
+    # 1. READ LOGS (Always read them so AI knows them)
+    logs_text = get_system_logs()
+    
+    # 2. STATE DUMP (Filtered)
     states = call_ha_api("states")
     system_status = ""
     if states:
         for s in states:
-            if s['state'] not in ['unknown'] and ("light" in s['entity_id'] or "switch" in s['entity_id'] or "sensor" in s['entity_id']):
+            # Δίνουμε στον AI μόνο τα απαραίτητα για να μην μπερδεύεται
+            if s['state'] not in ['unknown', 'unavailable'] and ("light" in s['entity_id'] or "switch" in s['entity_id'] or "climate" in s['entity_id'] or "cover" in s['entity_id']):
                  system_status += f"{s['entity_id']}: {s['state']}\n"
-    system_status = system_status[:4000]
-
+    
+    # 3. SAFETY PROMPT
     prompt = (
-        f"You are Jarvis, the Home Assistant Voice AI.\n"
+        f"You are Jarvis, a PROTECTIVE Home Assistant Analyst.\n"
         f"--- MEMORY ---\n{memory}\n"
-        f"--- SYSTEM STATUS ---\n{system_status}\n"
-        f"--- USER INPUT ---\n{user_input}\n\n"
-        f"INSTRUCTIONS:\n"
-        f"1. You are talking via Voice (TTS). Keep answers short and natural.\n"
-        f"2. Do not use Markdown characters (like *, #).\n"
-        f"3. Ask a follow-up question if needed (the mic will open)."
+        f"--- RECENT ERROR LOGS (TEXT FILE) ---\n{logs_text}\n"
+        f"--- DEVICE STATES ---\n{system_status}\n"
+        f"--- USER REQUEST ---\n{user_input}\n\n"
+        f"CRITICAL RULES (READ CAREFULLY):\n"
+        f"1. **DO NOT CHANGE ANY STATE** unless the user explicitly uses words like 'turn on', 'switch', 'activate', 'set'.\n"
+        f"2. If the user asks to 'Check logs' or 'System check', your job is to READ the 'RECENT ERROR LOGS' section above and SUMMARIZE it.\n"
+        f"3. DO NOT turn on any 'log' switches or entities. Just read the text provided.\n"
+        f"4. If you see errors, explain them simply.\n"
+        f"5. Before confirming an action, ask yourself: 'Did the user ask me to modify the system?' If no, just report.\n"
+        f"6. Keep answer spoken-friendly (no markdown)."
     )
     
     try:
@@ -154,10 +157,10 @@ def analyze_and_reply(user_input):
         text = response.text.replace("*", "").replace("#", "")
         return text
     except Exception as e:
-        return f"Error: {e}"
+        return f"Error analyzing: {e}"
 
 # --- RUNTIME ---
-print("🚀 Agent v6.2 (Syntax Fix) Starting...")
+print("🚀 Agent v7.0 (Safety Guardrails) Starting...")
 install_infrastructure()
 print(f"👂 Listening on {PROMPT_ENTITY}")
 
