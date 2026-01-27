@@ -1,7 +1,7 @@
-name: "HA AI Middleware"
-version: "1.0.2"  # Άλλαξα λίγο το version για να δει αλλαγή
+name: "Gemini Agent"
+version: "1.0.5"
 slug: "gemini_agent"
-description: "Gemini AI Agent with full local access to config and history."
+description: "AI Agent for Home Assistant"
 url: "https://github.com/nikomaxos/ha-addons"
 arch:
   - aarch64
