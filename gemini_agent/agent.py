@@ -23,7 +23,6 @@ except Exception as e:
 genai.configure(api_key=API_KEY)
 
 # --- MODEL SELECTION ---
-# Χρησιμοποιούμε το κορυφαίο μοντέλο που είδαμε ότι έχεις
 MODEL_NAME = 'gemini-2.5-pro' 
 print(f"Initializing Gemini Agent with model: {MODEL_NAME}")
 model = genai.GenerativeModel(MODEL_NAME)
@@ -56,32 +55,39 @@ def get_ha_state(entity_id):
         return ""
 
 def get_logs():
-    """Fetches last 40 lines of logs or lists files if missing."""
-    log_path = "/config/home-assistant.log"
-    try:
+    """Smart Log Fetcher: Tries main log, then backups (.1), then crash logs (.fault)."""
+    # Λίστα προτεραιότητας αρχείων
+    files_to_check = [
+        "/config/home-assistant.log",
+        "/config/home-assistant.log.1",      # Το αμέσως προηγούμενο log
+        "/config/home-assistant.log.fault"   # Αν έγινε crash
+    ]
+
+    for log_path in files_to_check:
         if os.path.exists(log_path):
-            with open(log_path, "r") as f:
-                lines = f.readlines()
-                return "".join(lines[-40:])
-        else:
-            # DEBUG MODE: Αν δεν το βρει, πες μας τι βλέπεις στον φάκελο
             try:
-                files = os.listdir("/config")
-                file_list = ", ".join(files)
-                return f"ERROR: Log file not found at {log_path}.\nBUT I see these files in /config: {file_list}"
-            except Exception as e:
-                return f"Log missing and cannot list /config folder. Permission error? {e}"
+                with open(log_path, "r") as f:
+                    lines = f.readlines()
+                    print(f"Reading logs from: {log_path}")
+                    # Επιστρέφουμε τις τελευταίες 60 γραμμές και το όνομα του αρχείου
+                    return f"SOURCE FILE: {log_path}\n" + "".join(lines[-60:])
+            except Exception:
+                continue # Αν αποτύχει, πάμε στο επόμενο
+
+    # Αν δεν βρει τίποτα από τα παραπάνω
+    try:
+        files = os.listdir("/config")
+        return f"ERROR: No readable log files found. Directory contents: {', '.join(files)}"
     except Exception as e:
-        return f"Error reading logs: {e}"
+        return f"Critical Error reading /config: {e}"
 
 def analyze_with_gemini(user_request):
     """Main logic to gather context and ask Gemini."""
     
     context_data = ""
-    # Αν ο χρήστης ζητάει logs/errors, διάβασε το αρχείο
     if "log" in user_request.lower() or "error" in user_request.lower():
         print("AI looking at: LOGS")
-        context_data = f"SYSTEM LOGS / FILE STATUS:\n{get_logs()}"
+        context_data = f"SYSTEM LOGS:\n{get_logs()}"
     else:
         context_data = "No specific system logs requested. Answer based on general knowledge."
 
@@ -89,8 +95,7 @@ def analyze_with_gemini(user_request):
         f"You are an expert Home Assistant technician named 'Gemini Agent'.\n"
         f"User Request: {user_request}\n\n"
         f"Technical Context:\n{context_data}\n\n"
-        f"Analyze the context and answer the user briefly and clearly. "
-        f"If you see a list of files instead of logs, tell the user exactly which file looks like the log file."
+        f"Analyze the context and answer the user briefly and clearly."
     )
 
     try:
@@ -109,15 +114,12 @@ while True:
         
         if current_command and current_command != last_command and current_command != "unknown":
             print(f"New command detected: {current_command}")
-            last_command = current_command # Reset trigger immediately
+            last_command = current_command 
             
-            # Notify user we are working
-            send_notification("Analyzing your request with Gemini 2.5...", "Agent Working")
+            send_notification("Analyzing request...", "Agent Working")
             
-            # Run Analysis
             result = analyze_with_gemini(current_command)
             
-            # Send Result
             print("Response ready. Sending notification.")
             send_notification(result, "Gemini Report")
             
