@@ -23,7 +23,7 @@ except Exception as e:
 genai.configure(api_key=API_KEY)
 
 # --- MODEL SELECTION ---
-# Χρησιμοποιούμε το μοντέλο που είδαμε ότι λειτουργεί στο λογαριασμό σου
+# Χρησιμοποιούμε το κορυφαίο μοντέλο που είδαμε ότι έχεις
 MODEL_NAME = 'gemini-2.5-pro' 
 print(f"Initializing Gemini Agent with model: {MODEL_NAME}")
 model = genai.GenerativeModel(MODEL_NAME)
@@ -56,7 +56,7 @@ def get_ha_state(entity_id):
         return ""
 
 def get_logs():
-    """Fetches last 40 lines of logs."""
+    """Fetches last 40 lines of logs or lists files if missing."""
     log_path = "/config/home-assistant.log"
     try:
         if os.path.exists(log_path):
@@ -64,7 +64,13 @@ def get_logs():
                 lines = f.readlines()
                 return "".join(lines[-40:])
         else:
-            return "Log file not found."
+            # DEBUG MODE: Αν δεν το βρει, πες μας τι βλέπεις στον φάκελο
+            try:
+                files = os.listdir("/config")
+                file_list = ", ".join(files)
+                return f"ERROR: Log file not found at {log_path}.\nBUT I see these files in /config: {file_list}"
+            except Exception as e:
+                return f"Log missing and cannot list /config folder. Permission error? {e}"
     except Exception as e:
         return f"Error reading logs: {e}"
 
@@ -72,10 +78,10 @@ def analyze_with_gemini(user_request):
     """Main logic to gather context and ask Gemini."""
     
     context_data = ""
-    # Απλή λογική για να αποφασίσει τι θα διαβάσει
+    # Αν ο χρήστης ζητάει logs/errors, διάβασε το αρχείο
     if "log" in user_request.lower() or "error" in user_request.lower():
         print("AI looking at: LOGS")
-        context_data = f"SYSTEM LOGS:\n{get_logs()}"
+        context_data = f"SYSTEM LOGS / FILE STATUS:\n{get_logs()}"
     else:
         context_data = "No specific system logs requested. Answer based on general knowledge."
 
@@ -83,7 +89,8 @@ def analyze_with_gemini(user_request):
         f"You are an expert Home Assistant technician named 'Gemini Agent'.\n"
         f"User Request: {user_request}\n\n"
         f"Technical Context:\n{context_data}\n\n"
-        f"Analyze the context and answer the user briefly and clearly."
+        f"Analyze the context and answer the user briefly and clearly. "
+        f"If you see a list of files instead of logs, tell the user exactly which file looks like the log file."
     )
 
     try:
