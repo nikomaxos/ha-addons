@@ -7,23 +7,31 @@ import google.generativeai as genai
 # --- CONFIGURATION ---
 OPTIONS_PATH = "/data/options.json"
 
-# Τραβάμε το Token αυτόματα από το σύστημα (τώρα θα δουλέψει λόγω του config.yaml)
-HASS_TOKEN = os.getenv("SUPERVISOR_TOKEN")
-# Η εσωτερική διεύθυνση του Supervisor API
-HASS_API = "http://supervisor/core/api"
-
 # Load Options
 try:
     with open(OPTIONS_PATH, "r") as f:
         options = json.load(f)
     API_KEY = options.get("gemini_api_key")
     PROMPT_ENTITY = options.get("prompt_entity", "input_text.gemini_prompt")
+    # Διαβάζουμε το Token από το UI (αν υπάρχει)
+    USER_TOKEN = options.get("ha_token", "")
 except Exception as e:
     print(f"Error loading options: {e}")
     exit(1)
 
 genai.configure(api_key=API_KEY)
 model = genai.GenerativeModel('gemini-2.5-pro')
+
+# --- API CONNECTION LOGIC ---
+# Αν ο χρήστης έδωσε Token, μιλάμε απευθείας στο HA, αλλιώς μέσω Supervisor
+if USER_TOKEN:
+    print("🔑 Using User Provided Token (Direct Connection)")
+    HASS_TOKEN = USER_TOKEN
+    HASS_API = "http://homeassistant:8123/api" # Direct docker access
+else:
+    print("🛡️ Using Supervisor Auto-Token (Proxy Connection)")
+    HASS_TOKEN = os.getenv("SUPERVISOR_TOKEN")
+    HASS_API = "http://supervisor/core/api"
 
 # --- API HELPERS ---
 def call_ha_api(endpoint, method="GET", data=None):
@@ -34,9 +42,9 @@ def call_ha_api(endpoint, method="GET", data=None):
     try:
         url = f"{HASS_API}/{endpoint}"
         if method == "GET":
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=headers, timeout=10)
         else:
-            response = requests.post(url, headers=headers, json=data)
+            response = requests.post(url, headers=headers, json=data, timeout=10)
         
         if response.status_code < 300:
             return response.json()
@@ -44,7 +52,7 @@ def call_ha_api(endpoint, method="GET", data=None):
             print(f"⚠️ API Error ({endpoint}): {response.status_code} - {response.text}")
             return None
     except Exception as e:
-        print(f"❌ Connection Error: {e}")
+        print(f"❌ Connection Error ({endpoint}): {e}")
         return None
 
 def get_ha_state(entity_id):
@@ -96,16 +104,20 @@ def analyze_and_reply(user_input):
         return f"Error: {e}"
 
 # --- RUNTIME ---
-print("🚀 Agent v10.0 (Native Permissions) Starting...")
+print("🚀 Agent v11.0 (Hybrid Auth) Starting...")
 
-# Verify Connection
+# 1. Connection Check
+print(f"Testing connection to: {HASS_API}")
 test = call_ha_api("discovery_info")
+
 if test:
-    print("✅ Supervisor API Connected Successfully (Automatic Auth).")
+    print("✅ API Connected Successfully!")
 else:
-    print(f"❌ API Failed. Token present? {bool(HASS_TOKEN)}")
-    # Αν αποτύχει, περιμένουμε λίγο και ξαναδοκιμάζουμε (boot timing)
-    time.sleep(10)
+    print("❌ API Connection Failed.")
+    print("💡 ACTION REQUIRED: Please generate a 'Long-Lived Access Token' in your Profile,")
+    print("   and paste it into the 'ha_token' field in the Add-on Configuration tab.")
+    time.sleep(60)
+    exit(1)
 
 last_command = get_ha_state(PROMPT_ENTITY)
 print(f"👂 Listening on {PROMPT_ENTITY}")
@@ -123,7 +135,7 @@ while True:
             reply = analyze_and_reply(current_command)
             print(f"✅ Reply: {reply[:30]}...")
             
-            # FIRE EVENT (Reply back to Script)
+            # FIRE EVENT
             call_ha_api("events/jarvis_response", "POST", {"text": reply})
             
     except Exception as e:
