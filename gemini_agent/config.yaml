@@ -1,5 +1,5 @@
 name: "Gemini Agent"
-version: "1.0.25"
+version: "1.0.26"
 slug: "gemini_agent"
 description: "AI Agent with Native Configuration"
 startup: application
