@@ -1,1 +1,1 @@
-# HA AI Middleware
+Home Assistant Addons by Nikomaxos
