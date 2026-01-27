@@ -13,7 +13,6 @@ try:
         options = json.load(f)
     API_KEY = options.get("gemini_api_key")
     PROMPT_ENTITY = options.get("prompt_entity", "input_text.gemini_prompt")
-    # Διαβάζουμε το Token από το UI (αν υπάρχει)
     USER_TOKEN = options.get("ha_token", "")
 except Exception as e:
     print(f"Error loading options: {e}")
@@ -23,11 +22,11 @@ genai.configure(api_key=API_KEY)
 model = genai.GenerativeModel('gemini-2.5-pro')
 
 # --- API CONNECTION LOGIC ---
-# Αν ο χρήστης έδωσε Token, μιλάμε απευθείας στο HA, αλλιώς μέσω Supervisor
 if USER_TOKEN:
     print("🔑 Using User Provided Token (Direct Connection)")
     HASS_TOKEN = USER_TOKEN
-    HASS_API = "http://homeassistant:8123/api" # Direct docker access
+    # Δοκιμάζουμε την εσωτερική διεύθυνση Docker
+    HASS_API = "http://homeassistant:8123/api"
 else:
     print("🛡️ Using Supervisor Auto-Token (Proxy Connection)")
     HASS_TOKEN = os.getenv("SUPERVISOR_TOKEN")
@@ -39,8 +38,13 @@ def call_ha_api(endpoint, method="GET", data=None):
         "Authorization": f"Bearer {HASS_TOKEN}",
         "Content-Type": "application/json"
     }
+    
+    # Χειρισμός του slash για να αποφύγουμε διπλά //
+    base = HASS_API.rstrip("/")
+    path = endpoint.lstrip("/")
+    url = f"{base}/{path}"
+    
     try:
-        url = f"{HASS_API}/{endpoint}"
         if method == "GET":
             response = requests.get(url, headers=headers, timeout=10)
         else:
@@ -104,20 +108,25 @@ def analyze_and_reply(user_input):
         return f"Error: {e}"
 
 # --- RUNTIME ---
-print("🚀 Agent v11.0 (Hybrid Auth) Starting...")
+print("🚀 Agent v11.1 (Fixed API Check) Starting...")
 
-# 1. Connection Check
-print(f"Testing connection to: {HASS_API}")
-test = call_ha_api("discovery_info")
+# 1. Connection Check (Χτυπάμε το root API που επιστρέφει πάντα 200 OK)
+print(f"Testing connection to: {HASS_API}/")
+test = call_ha_api("") # <--- ΑΛΛΑΓΗ: Κενό string για να χτυπήσει το root /api/
 
-if test:
+if test and test.get("message") == "API running.":
     print("✅ API Connected Successfully!")
 else:
-    print("❌ API Connection Failed.")
-    print("💡 ACTION REQUIRED: Please generate a 'Long-Lived Access Token' in your Profile,")
-    print("   and paste it into the 'ha_token' field in the Add-on Configuration tab.")
-    time.sleep(60)
-    exit(1)
+    # Αν αποτύχει το root check, δοκιμάζουμε το config endpoint
+    print("⚠️ Root check failed, trying config endpoint...")
+    test_conf = call_ha_api("config")
+    if test_conf:
+        print("✅ API Connected Successfully (via Config)!")
+    else:
+        print("❌ API Connection Failed.")
+        print("💡 Check your Token and make sure Home Assistant is running.")
+        time.sleep(60)
+        exit(1)
 
 last_command = get_ha_state(PROMPT_ENTITY)
 print(f"👂 Listening on {PROMPT_ENTITY}")
@@ -130,12 +139,10 @@ while True:
             print(f"🗣️ New Command: {current_command}")
             last_command = current_command
             
-            # Analyze
             print("🧠 Thinking...")
             reply = analyze_and_reply(current_command)
             print(f"✅ Reply: {reply[:30]}...")
             
-            # FIRE EVENT
             call_ha_api("events/jarvis_response", "POST", {"text": reply})
             
     except Exception as e:
