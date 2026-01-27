@@ -2,7 +2,7 @@ name: "HA AI Middleware"
 version: "1.0.0"
 slug: "ha_ai_middleware"
 description: "Gemini AI Agent with full local access to config and history."
-url: "https://github.com/nikomaxos/ha-ai-middleware"
+url: "https://github.com/nikomaxos/ha-addons"
 arch:
   - aarch64
   - amd64
