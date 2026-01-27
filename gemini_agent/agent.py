@@ -36,8 +36,10 @@ def call_ha_api(endpoint, method="GET", data=None):
         
         if response.status_code < 300:
             return response.json()
+        print(f"API Error {endpoint}: {response.status_code}") # Debug print
         return None
-    except:
+    except Exception as e:
+        print(f"Request Exception: {e}")
         return None
 
 def get_ha_state(entity_id):
@@ -56,10 +58,9 @@ def get_system_logs():
             try:
                 with open(log_path, "r") as f:
                     lines = f.readlines()
-                    # Filter for errors/warnings
                     filtered = [line for line in lines[-100:] if "ERROR" in line or "WARNING" in line]
                     if not filtered: 
-                        filtered = lines[-20:] # Fallback
+                        filtered = lines[-20:] 
                     logs += f"--- LOG FILE: {log_path} ---\n" + "".join(filtered) + "\n"
             except:
                 pass
@@ -69,8 +70,8 @@ def get_system_logs():
 def install_infrastructure():
     print("👷 Checking Infrastructure...")
     jarvis_automation_yaml = """
-# --- JARVIS AI AUTO-GENERATED AUTOMATION (FIXED v3) ---
-- id: 'jarvis_voice_loop_v3'
+# --- JARVIS AI AUTO-GENERATED AUTOMATION (FIXED v4) ---
+- id: 'jarvis_voice_loop_v4'
   alias: 'Jarvis Voice Loop (Auto-Generated)'
   description: 'Handles TTS and re-opens the microphone seamlessly.'
   trigger:
@@ -79,8 +80,9 @@ def install_infrastructure():
   action:
   - service: tts.google_translate_say
     data:
-      entity_id: all
+      entity_id: all  # <--- CHANGE THIS IF NO SOUND!
       message: "{{ trigger.event.data.text }}"
+      language: "el" # Default to Greek support in TTS request
   - delay:
       hours: 0
       minutes: 0
@@ -105,8 +107,8 @@ def install_infrastructure():
             with open(AUTOMATIONS_FILE, "r") as f:
                 current_content = f.read()
         
-        if "id: 'jarvis_voice_loop_v3'" not in current_content:
-            print("⚙️ Injecting Fixed Automation (v3)...")
+        if "id: 'jarvis_voice_loop_v4'" not in current_content:
+            print("⚙️ Injecting Fixed Automation (v4 - Greek Support)...")
             with open(AUTOMATIONS_FILE, "a") as f:
                 f.write("\n" + jarvis_automation_yaml)
             call_ha_api("services/automation/reload", "POST")
@@ -142,11 +144,9 @@ def get_memory_string():
 def analyze_and_reply(user_input):
     print("🧠 Thinking...")
     memory = get_memory_string()
-    
-    # 1. READ LOGS
     logs_text = get_system_logs()
     
-    # 2. STATE DUMP
+    # State Dump
     states = call_ha_api("states")
     system_status = ""
     if states:
@@ -156,20 +156,18 @@ def analyze_and_reply(user_input):
                 if "light" in eid or "switch" in eid or "climate" in eid or "cover" in eid:
                      system_status += f"{eid}: {s['state']}\n"
     
-    # 3. SAFETY PROMPT
+    # MULTILINGUAL PROMPT
     prompt = (
-        f"You are Jarvis, a PROTECTIVE Home Assistant Analyst.\n"
+        f"You are Jarvis, a smart Home Assistant Analyst.\n"
         f"--- MEMORY ---\n{memory}\n"
-        f"--- RECENT ERROR LOGS (TEXT FILE) ---\n{logs_text}\n"
-        f"--- DEVICE STATES ---\n{system_status}\n"
+        f"--- LOGS ---\n{logs_text}\n"
+        f"--- STATES ---\n{system_status}\n"
         f"--- USER REQUEST ---\n{user_input}\n\n"
-        f"CRITICAL RULES (READ CAREFULLY):\n"
-        f"1. **DO NOT CHANGE ANY STATE** unless the user explicitly uses words like 'turn on', 'switch', 'activate', 'set'.\n"
-        f"2. If the user asks to 'Check logs' or 'System check', your job is to READ the 'RECENT ERROR LOGS' section above and SUMMARIZE it.\n"
-        f"3. DO NOT turn on any 'log' switches or entities. Just read the text provided.\n"
-        f"4. If you see errors, explain them simply.\n"
-        f"5. Before confirming an action, ask yourself: 'Did the user ask me to modify the system?' If no, just report.\n"
-        f"6. Keep answer spoken-friendly (no markdown)."
+        f"RULES:\n"
+        f"1. **LANGUAGE DETECTION:** If the User Request is in GREEK, you MUST reply in GREEK. If English, reply in English.\n"
+        f"2. **SAFETY:** Do NOT change states (turn on/off) unless explicitly asked. If asked to 'check logs', just read and summarize the text logs provided above.\n"
+        f"3. **STYLE:** Speak naturally, concisely, and friendly. No markdown characters.\n"
+        f"4. If checking logs, look for 'ERROR' lines in the LOGS section and explain them simply."
     )
     
     try:
@@ -177,10 +175,11 @@ def analyze_and_reply(user_input):
         text = response.text.replace("*", "").replace("#", "")
         return text
     except Exception as e:
+        print(f"Gemini API Error: {e}")
         return f"Error analyzing: {e}"
 
 # --- RUNTIME ---
-print("🚀 Agent v7.1 (Clean Syntax) Starting...")
+print("🚀 Agent v7.2 (Multilingual) Starting...")
 install_infrastructure()
 print(f"👂 Listening on {PROMPT_ENTITY}")
 
@@ -191,13 +190,15 @@ while True:
         current_command = get_ha_state(PROMPT_ENTITY)
         
         if current_command and current_command != last_command and current_command not in ["", "unknown"]:
-            print(f"🗣️ Command: {current_command}")
+            print(f"🗣️ Command detected: {current_command}")
             last_command = current_command
             
             reply = analyze_and_reply(current_command)
             save_memory(current_command, reply)
             
-            print(f"🔊 Speaking: {reply[:50]}...")
+            print(f"🔊 Speaking (Language Auto-Detect): {reply[:50]}...")
+            
+            # Fire event
             call_ha_api("events/jarvis_response", "POST", {"text": reply})
             
     except Exception as e:
