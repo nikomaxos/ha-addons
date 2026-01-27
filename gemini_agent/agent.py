@@ -3,6 +3,7 @@ import time
 import requests
 import json
 import google.generativeai as genai
+from datetime import datetime, timedelta
 
 # --- CONFIGURATION ---
 OPTIONS_PATH = "/data/options.json"
@@ -21,13 +22,13 @@ except Exception as e:
 genai.configure(api_key=API_KEY)
 model = genai.GenerativeModel('gemini-2.5-pro')
 
-# --- API CONNECTION SETUP ---
+# --- AUTH SETUP ---
 if USER_TOKEN:
-    print("🔑 Auth: Using User Provided Token (Direct Mode)")
+    print("🔑 Auth: User Token (Direct)")
     HASS_TOKEN = USER_TOKEN
     HASS_API = "http://homeassistant:8123/api"
 else:
-    print("🛡️ Auth: Using Supervisor Auto-Token (Proxy Mode)")
+    print("🛡️ Auth: Supervisor (Proxy)")
     HASS_TOKEN = os.getenv("SUPERVISOR_TOKEN")
     HASS_API = "http://supervisor/core/api"
 
@@ -37,33 +38,82 @@ def call_ha_api(endpoint, method="GET", data=None):
         "Authorization": f"Bearer {HASS_TOKEN}",
         "Content-Type": "application/json"
     }
-    
-    # Καθαρισμός URL για αποφυγή διπλών //
     base = HASS_API.rstrip("/")
     path = endpoint.lstrip("/")
     url = f"{base}/{path}"
     
     try:
         if method == "GET":
-            response = requests.get(url, headers=headers, timeout=10)
+            response = requests.get(url, headers=headers, timeout=15)
         else:
-            response = requests.post(url, headers=headers, json=data, timeout=10)
-        
-        if response.status_code < 300:
-            return response.json()
-        else:
-            print(f"⚠️ API FAIL [{endpoint}]: Status {response.status_code} - {response.text}")
-            return None
+            response = requests.post(url, headers=headers, json=data, timeout=15)
+        return response.json() if response.status_code < 300 else None
     except Exception as e:
-        print(f"❌ CONNECTION ERROR [{endpoint}]: {e}")
+        print(f"❌ API Error [{endpoint}]: {e}")
         return None
 
 def get_ha_state(entity_id):
     res = call_ha_api(f"states/{entity_id}")
     return res.get("state", "") if res else ""
 
+# --- HISTORY ENGINE (NEW!) ---
+def get_history_context(lookback_hours=3):
+    """Fetches history for relevant sensors (temperature, climate) for the last X hours."""
+    # Calculate start time (UTC)
+    start_time = (datetime.utcnow() - timedelta(hours=lookback_hours)).isoformat()
+    
+    # 1. Get all entities first to find relevant ones
+    states = call_ha_api("states")
+    if not states: return "No history available."
+    
+    # Filter for interesting entities (climate, temperature sensors)
+    # We limit to 10 entities to avoid context overflow
+    target_entities = []
+    for s in states:
+        eid = s['entity_id']
+        # Prioritize Climate and Temperature/Humidity sensors
+        if "climate" in eid or "temperature" in eid or "humid" in eid:
+             target_entities.append(eid)
+    
+    if not target_entities: return "No sensors found."
+    
+    # Limit to top 15 to be safe
+    target_entities = target_entities[:15]
+    entity_filter = ",".join(target_entities)
+    
+    # 2. Call History API
+    # endpoint: /api/history/period/<timestamp>?filter_entity_id=...
+    endpoint = f"history/period/{start_time}?filter_entity_id={entity_filter}&minimal_response"
+    history_data = call_ha_api(endpoint)
+    
+    if not history_data: return "Could not fetch history."
+    
+    # 3. Format for LLM (Compact format)
+    # Output: "sensor.living_room_temp: [10:00=21C, 10:30=21.5C, ...]"
+    summary = []
+    for entity_history in history_data:
+        if not entity_history: continue
+        
+        eid = entity_history[0]['entity_id']
+        readings = []
+        
+        # Sample every 3rd reading to save space
+        for entry in entity_history[::5]: 
+            val = entry.get('state')
+            # Only keep numeric values or distinct states
+            if val not in ['unknown', 'unavailable']:
+                # Format time as HH:MM
+                ts = datetime.fromisoformat(entry['last_changed'].replace("Z", "+00:00")).strftime("%H:%M")
+                readings.append(f"{ts}={val}")
+        
+        if readings:
+            summary.append(f"{eid}: " + ", ".join(readings[-10:])) # Keep last 10 readings per sensor
+            
+    return "\n".join(summary)
+
 # --- LOG READER ---
 def get_system_logs():
+    # ... (ίδιο με πριν) ...
     log_files = ["/config/home-assistant.log.1", "/config/home-assistant.log"]
     logs = ""
     for log_path in log_files:
@@ -75,29 +125,41 @@ def get_system_logs():
                     if not filtered: filtered = lines[-10:]
                     logs += f"--- LOG FILE: {log_path} ---\n" + "".join(filtered) + "\n"
             except: pass
-    return logs[:4000]
+    return logs[:3000]
 
 # --- MAIN LOGIC ---
 def analyze_and_reply(user_input):
     logs_text = get_system_logs()
     
-    # State Dump
+    # Current States
     states = call_ha_api("states")
     system_status = ""
     if states:
         for s in states:
             if s['state'] not in ['unknown', 'unavailable'] and ("light" in s['entity_id'] or "switch" in s['entity_id']):
                  system_status += f"{s['entity_id']}: {s['state']}\n"
-    
+
+    # --- INTELLIGENT HISTORY FETCH ---
+    # Αν ο χρήστης ρωτάει για παρελθόν, φέρνουμε ιστορικό
+    history_context = ""
+    keywords = ["χθες", "πριν", "προηγούμενη", "history", "ago", "yesterday", "last", "ήταν", "was"]
+    if any(k in user_input.lower() for k in keywords):
+        print("🕰️ History Request Detected! Fetching data...")
+        history_context = get_history_context(lookback_hours=24)
+    else:
+        history_context = "History not requested."
+
     prompt = (
         f"You are Jarvis. Answer concisely.\n"
-        f"--- LOGS ---\n{logs_text}\n"
-        f"--- STATES ---\n{system_status}\n"
+        f"--- CURRENT STATES ---\n{system_status}\n"
+        f"--- SENSOR HISTORY (Past 24h) ---\n{history_context}\n"
+        f"--- ERROR LOGS ---\n{logs_text}\n"
         f"--- USER REQUEST ---\n{user_input}\n\n"
         f"RULES:\n"
         f"1. If user speaks Greek, reply in Greek.\n"
-        f"2. Keep it short (2 sentences).\n"
-        f"3. No markdown."
+        f"2. Use the HISTORY section to answer questions like 'What was the temp 1 hour ago?'.\n"
+        f"3. The history format is HH:MM=Value.\n"
+        f"4. Keep it short."
     )
     
     try:
@@ -108,51 +170,26 @@ def analyze_and_reply(user_input):
         return f"Error: {e}"
 
 # --- RUNTIME ---
-print("🚀 Agent v11.2 (Debug & Fix) Starting...")
-
-# 1. TEST CONNECTION (Το παλιό discovery_info πέθανε, χτυπάμε το API Root)
-print(f"Testing Connectivity to: {HASS_API}/")
-test = call_ha_api("") # Χτυπάει το root /api/ που δίνει πάντα {"message": "API running."}
-
-if test and "API running" in test.get("message", ""):
-    print("✅ API Connected Successfully!")
-else:
-    print("⚠️ Root check failed. Trying /config...")
-    test2 = call_ha_api("config")
-    if test2:
-         print("✅ API Connected Successfully (via Config)!")
-    else:
-        print("❌ FATAL: Cannot connect to Home Assistant API.")
-        print("👉 Check your 'ha_token' in Configuration.")
-        time.sleep(60)
-        exit(1)
-
+print("🚀 Agent v12.0 (History Enabled) Starting...")
+print(f"👂 Listening on {PROMPT_ENTITY}")
 last_command = get_ha_state(PROMPT_ENTITY)
-print(f"👂 Listening on {PROMPT_ENTITY} (Initial: '{last_command}')")
 
 while True:
     try:
         current_command = get_ha_state(PROMPT_ENTITY)
         
         if current_command and current_command != last_command and current_command not in ["", "unknown"]:
-            print(f"🗣️ NEW COMMAND: {current_command}")
+            print(f"🗣️ NEW: {current_command}")
             last_command = current_command
             
             print("🧠 Thinking...")
             reply = analyze_and_reply(current_command)
-            print(f"✅ Generated Reply: {reply[:50]}...")
+            print(f"✅ Reply: {reply[:50]}...")
             
-            # FIRE EVENT - Με Debug Prints
-            print("📤 Sending Event 'jarvis_response'...")
-            res = call_ha_api("events/jarvis_response", "POST", {"text": reply})
-            
-            if res is not None:
-                print("🎉 Event Sent Successfully!")
-            else:
-                print("🔥 FAILED to send event back to HA!")
+            call_ha_api("events/jarvis_response", "POST", {"text": reply})
             
     except Exception as e:
-        print(f"Loop Error: {e}")
+        print(f"Error: {e}")
         time.sleep(5)
     
     time.sleep(1)
