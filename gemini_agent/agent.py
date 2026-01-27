@@ -8,8 +8,6 @@ from datetime import datetime, timedelta
 # --- CONFIGURATION ---
 OPTIONS_PATH = "/data/options.json"
 MEMORY_FILE = "/config/gemini_memory.json"
-
-# Safety Defaults
 HASS_API = "http://supervisor/core/api"
 HASS_TOKEN = os.getenv("SUPERVISOR_TOKEN")
 
@@ -24,11 +22,7 @@ try:
         print("🔑 Auth: User Token (Direct)")
         HASS_TOKEN = USER_TOKEN
         HASS_API = "http://homeassistant:8123/api"
-    else:
-        print("🛡️ Auth: Supervisor (Proxy)")
-
-except Exception as e:
-    print(f"Error loading options: {e}")
+except Exception:
     pass
 
 genai.configure(api_key=API_KEY)
@@ -52,10 +46,8 @@ def call_ha_api(endpoint, method="GET", data=None):
         
         if response.status_code < 300:
             return response.json()
-        print(f"⚠️ API Status {response.status_code} for {url}")
         return None
-    except Exception as e:
-        print(f"❌ API Error [{endpoint}]: {e}")
+    except:
         return None
 
 def get_ha_state(entity_id):
@@ -79,7 +71,6 @@ def save_memory(user, agent):
     mem.append({"timestamp": datetime.now().isoformat(), "role": "user", "text": user})
     mem.append({"timestamp": datetime.now().isoformat(), "role": "assistant", "text": agent})
     
-    # Keep last 10 messages
     if len(mem) > 10:
         mem = mem[-10:]
         
@@ -98,13 +89,14 @@ def get_memory_string():
         output.append(f"{m['role'].upper()}: {m['text']}")
     return "\n".join(output)
 
-# --- HISTORY ENGINE (CATEGORY BASED) ---
+# --- HISTORY ENGINE ---
 def get_relevant_history(user_input):
-    """
-    Fetches history based on category detection (Temperature, Light, Cover).
-    """
     try:
-        # 1. Timeframe
+        # 1. Determine Timeframe & Anchors
+        # Container Time (Local if timezone set correctly, else UTC)
+        # We use utcnow for calculations to match HA DB
+        utc_now = datetime.utcnow()
+        
         lookback_hours = 24
         lower_input = user_input.lower()
         
@@ -115,66 +107,53 @@ def get_relevant_history(user_input):
         elif "μέρες" in lower_input:
             lookback_hours = 72
         elif "ώρα" in lower_input or "hour" in lower_input:
-            lookback_hours = 4
+            lookback_hours = 2 # Last 2 hours for precision
         
-        print(f"🕒 Timeframe: {lookback_hours}h")
-        start_time = (datetime.utcnow() - timedelta(hours=lookback_hours)).isoformat()
+        start_time_iso = (utc_now - timedelta(hours=lookback_hours)).isoformat()
         
-        # 2. Get All States
+        # 2. Category Detection
         states = call_ha_api("states")
         if not states:
             return "Error: No states."
         
-        # 3. Detect Category Intent
         target_entities = []
-        
-        # Keywords
-        is_temp_query = any(w in lower_input for w in ["θερμοκρασ", "temp", "βαθμ", "klimat", "κλιματ", "heating", "θερμανσ", "heat"])
-        is_light_query = any(w in lower_input for w in ["light", "φως", "φώτα", "διακοπτ", "switch"])
-        is_cover_query = any(w in lower_input for w in ["porta", "πόρτα", "παραθυρ", "window", "cover"])
+        is_temp = any(w in lower_input for w in ["θερμοκρασ", "temp", "klimat", "κλιματ", "heating", "θερμανσ", "heat"])
+        is_light = any(w in lower_input for w in ["light", "φως", "φώτα", "διακοπτ", "switch"])
         
         for s in states:
             eid = s['entity_id'].lower()
             attrs = s.get('attributes', {})
-            unit = attrs.get('unit_of_measurement', '')
-            dev_class = attrs.get('device_class', '')
             
-            match = False
-            
-            # Category Logic
-            if is_temp_query:
-                if eid.startswith("climate."): match = True
-                if unit in ['°C', '°F']: match = True
-                if 'temperature' in str(dev_class): match = True
-            
-            if is_light_query:
-                if eid.startswith("light.") or eid.startswith("switch."): match = True
-                
-            if is_cover_query:
-                if eid.startswith("cover.") or eid.startswith("binary_sensor."): match = True
-                
-            # Fallback Keyword Match
-            if not match and not (is_temp_query or is_light_query or is_cover_query):
-                 user_words = [w for w in lower_input.split() if len(w) > 3]
-                 if any(w in eid for w in user_words): match = True
+            # BLACKLIST: Ignore summary stats for short-term history
+            if lookback_hours < 24 and any(bad in eid for bad in ["daily", "weekly", "monthly", "cost", "energy", "power"]):
+                continue
 
+            match = False
+            if is_temp:
+                if eid.startswith("climate."): match = True
+                elif "temperature" in str(attrs.get('device_class', '')): match = True
+            
+            if is_light:
+                if eid.startswith("light.") or eid.startswith("switch."): match = True
+            
+            # Fallback text match
+            if not match:
+                words = [w for w in lower_input.split() if len(w)>3]
+                if any(w in eid for w in words): match = True
+            
             if match and "update" not in eid:
                 target_entities.append(s['entity_id'])
 
         if not target_entities:
-            return "No relevant sensors found for this category."
-
-        # Limit to top 20
-        final_list = target_entities[:20]
-        print(f"🎯 Fetching History for: {final_list}")
+            return "No relevant sensors."
         
-        # 4. History API Call
+        final_list = target_entities[:20]
         entity_filter = ",".join(final_list)
-        endpoint = f"history/period/{start_time}?filter_entity_id={entity_filter}"
+        endpoint = f"history/period/{start_time_iso}?filter_entity_id={entity_filter}"
         
         history_data = call_ha_api(endpoint)
         if not history_data:
-            return "API returned no history data."
+            return "No history data."
         
         summary = []
         for entity_history in history_data:
@@ -184,7 +163,7 @@ def get_relevant_history(user_input):
             eid = entity_history[0]['entity_id']
             readings = []
             
-            # Sampling
+            # Sampling logic
             step = 1
             if lookback_hours > 24:
                 step = 10
@@ -193,25 +172,23 @@ def get_relevant_history(user_input):
                 state = entry.get('state')
                 attrs = entry.get('attributes', {})
                 
-                # Enrich data
+                # Enrich Climate Data
                 val = state
                 if eid.startswith("climate."):
-                    action = attrs.get('hvac_action', '')
+                    action = attrs.get('hvac_action', 'unknown')
                     curr = attrs.get('current_temperature', '')
-                    if action or curr:
-                        val = f"{state} (Action:{action}, Cur:{curr})"
+                    val = f"{state} (Active:{action}, Temp:{curr})"
                 
                 if state not in ['unknown', 'unavailable']:
                     try:
-                        ts_obj = datetime.fromisoformat(entry['last_changed'].replace("Z", "+00:00"))
-                        fmt = "%H:%M" if lookback_hours < 48 else "%d/%m %H:%M"
-                        ts = ts_obj.strftime(fmt)
-                        readings.append(f"[{ts}={val}]")
+                        ts_str = entry['last_changed']
+                        readings.append(f"[{ts_str}={val}]")
                     except:
                         pass
             
             if readings:
-                data_str = ", ".join(readings[-100:])
+                # Last 50 readings
+                data_str = ", ".join(readings[-50:])
                 summary.append(f"ENTITY: {eid}\nDATA: {data_str}\n")
                 
         return "\n".join(summary)
@@ -222,29 +199,36 @@ def get_relevant_history(user_input):
 # --- MAIN LOGIC ---
 def analyze_and_reply(user_input):
     try:
+        # Time Anchors
+        now_local = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now_utc = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        
         memory = get_memory_string()
         history_context = get_relevant_history(user_input)
         
-        # Current States
         current_status = ""
         states = call_ha_api("states")
         if states:
             for s in states:
                 if s['state'] not in ['unknown', 'unavailable']:
                     eid = s['entity_id']
-                    if any(x in eid for x in ["light", "switch", "climate", "sensor"]):
+                    if any(x in eid for x in ["light", "switch", "climate"]):
                          current_status += f"{eid}: {s['state']}\n"
         
         prompt = (
-            f"You are Jarvis. Omniscient Home Assistant AI.\n"
-            f"--- HISTORY DATA (UTC Times) ---\n{history_context}\n"
-            f"--- CURRENT STATE ---\n{current_status}\n"
+            f"You are Jarvis. Smart Home Analyst.\n"
+            f"--- CRITICAL TIME CONTEXT ---\n"
+            f"Current Local Time: {now_local}\n"
+            f"Current UTC Time: {now_utc}\n"
+            f"(Note: HA Logs below are in UTC. Add +2h/+3h for Greece).\n\n"
+            f"--- LOGS (UTC) ---\n{history_context}\n"
+            f"--- CURRENT STATES ---\n{current_status}\n"
             f"--- MEMORY ---\n{memory}\n"
-            f"--- USER REQUEST ---\n{user_input}\n\n"
+            f"--- REQUEST ---\n{user_input}\n\n"
             f"RULES:\n"
-            f"1. Check 'DATA' lines. Timestamps are [HH:MM=State].\n"
-            f"2. You have ALL sensors of the requested category. Find the right one using common sense (e.g. 'saloniou' matches 'salon').\n"
-            f"3. For heating, look for 'Action:heating' or state 'heat'.\n"
+            f"1. IGNORE data older than the requested timeframe. Compare Log timestamps with 'Current UTC Time'.\n"
+            f"2. For 'Last Hour': If the logs show the last 'heating' event was 4 hours ago, then the answer is '0 minutes'.\n"
+            f"3. Ignore sensors like 'daily_heating_hours' for short-term queries.\n"
             f"4. Reply in Greek."
         )
         
@@ -256,9 +240,7 @@ def analyze_and_reply(user_input):
         return f"Analysis Error: {e}"
 
 # --- RUNTIME ---
-print("🚀 Agent v17.1 (Syntax Clean) Starting...")
-print(f"👂 Listening on {PROMPT_ENTITY}")
-
+print("🚀 Agent v18.1 (Syntax Clean) Starting...")
 last_command = get_ha_state(PROMPT_ENTITY)
 
 while True:
