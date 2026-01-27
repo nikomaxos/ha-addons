@@ -1,185 +1,152 @@
 import os
 import time
-import json
 import requests
+import json
 import google.generativeai as genai
-import sys
+import yaml
 
-# --- LOAD CONFIG ---
+# --- CONFIGURATION ---
+OPTIONS_PATH = "/data/options.json"
+HASS_TOKEN = os.getenv("SUPERVISOR_TOKEN")
+HASS_API = "http://supervisor/core/api"
+
+# Load Options
 try:
-    with open("/data/options.json", "r") as f:
+    with open(OPTIONS_PATH, "r") as f:
         options = json.load(f)
-except:
-    options = {}
+    API_KEY = options.get("gemini_api_key")
+    PROMPT_ENTITY = options.get("prompt_entity", "input_text.gemini_prompt")
+except Exception as e:
+    print(f"Error loading options: {e}")
+    exit(1)
 
-GEMINI_API_KEY = options.get("gemini_api_key")
-PROMPT_ENTITY = options.get("prompt_entity", "input_text.gemini_prompt")
+# Configure Gemini
+genai.configure(api_key=API_KEY)
 
-# HA API SETUP
-HA_URL = "http://supervisor/core/api"
-HA_TOKEN = os.environ.get("SUPERVISOR_TOKEN")
-HEADERS = {
-    "Authorization": f"Bearer {HA_TOKEN}",
-    "content-type": "application/json",
-}
+# --- DIAGNOSTIC: LIST AVAILABLE MODELS ---
+print("--- CHECKING AVAILABLE MODELS ---")
+try:
+    for m in genai.list_models():
+        if 'generateContent' in m.supported_generation_methods:
+            print(f"FOUND MODEL: {m.name}")
+except Exception as e:
+    print(f"Could not list models: {e}")
+print("-------------------------------")
+
+# Select Model (Change this later based on the logs above)
+# We use 'gemini-pro' as a safe fallback
+MODEL_NAME = 'gemini-pro' 
+print(f"Selected Model: {MODEL_NAME}")
+model = genai.GenerativeModel(MODEL_NAME)
 
 # --- HELPER FUNCTIONS ---
-
 def send_notification(message, title="Gemini Agent"):
-    print(f"NOTIFY: {title} - {message}")
-    # Truncate message to avoid HA API limits (4096 chars usually)
-    safe_message = message[:4000]
-    payload = {"message": safe_message, "title": title}
+    """Sends a persistent notification to Home Assistant."""
+    headers = {
+        "Authorization": f"Bearer {HASS_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    data = {"message": message, "title": title}
     try:
-        requests.post(f"{HA_URL}/services/persistent_notification/create", headers=HEADERS, json=payload)
+        response = requests.post(f"{HASS_API}/services/persistent_notification/create", headers=headers, json=data)
+        if response.status_code != 200:
+            print(f"Failed to send notification: {response.text}")
     except Exception as e:
         print(f"Error sending notification: {e}")
 
-def get_history(entity_id):
-    # Get last 24h history
-    from datetime import datetime, timedelta
-    start = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+def get_ha_state(entity_id):
+    """Gets the state of an entity."""
+    headers = {
+        "Authorization": f"Bearer {HASS_TOKEN}",
+        "Content-Type": "application/json",
+    }
     try:
-        url = f"{HA_URL}/history/period/{start}?filter_entity_id={entity_id}"
-        res = requests.get(url, headers=HEADERS)
-        data = res.json()
-        if not data: return "No history found."
-        
-        # Simplify data to save tokens (keep only time and state)
-        simple = [{"t": x["last_updated"], "s": x["state"]} for x in data[0]]
-        # Limit to 15k characters to avoid blowing up the context window
-        return str(simple)[:15000] 
+        response = requests.get(f"{HASS_API}/states/{entity_id}", headers=headers)
+        if response.status_code == 200:
+            return response.json().get("state", "")
+        return ""
+    except:
+        return ""
+
+def get_history():
+    """Fetches rudimentary history (placeholder for now)."""
+    # In a full version, we would query the history API.
+    # For now, we return a generic message to verify connectivity.
+    return "History access requires advanced SQL querying. For now, assume systems are nominal."
+
+def get_logs():
+    """Fetches last 50 lines of logs."""
+    # Reading files directly requires mapping /config, which we have.
+    # Trying to read home-assistant.log
+    log_path = "/config/home-assistant.log"
+    try:
+        if os.path.exists(log_path):
+            with open(log_path, "r") as f:
+                lines = f.readlines()
+                return "".join(lines[-50:]) # Return last 50 lines
+        else:
+            return "Log file not found at /config/home-assistant.log"
     except Exception as e:
-        return f"Error getting history: {str(e)}"
+        return f"Error reading logs: {e}"
 
-def read_config_file(filename):
+def analyze_with_gemini(user_request):
+    """Main logic to gather context and ask Gemini."""
+    
+    # 1. Determine what the user wants (Logs or General)
+    context_data = ""
+    
+    if "log" in user_request.lower() or "error" in user_request.lower():
+        print("AI requested tool: LOGS")
+        context_data = f"LOGS:\n{get_logs()}"
+    elif "history" in user_request.lower():
+        print("AI requested tool: HISTORY")
+        context_data = f"HISTORY SUMMARY:\n{get_history()}"
+    else:
+        context_data = "No specific logs requested."
+
+    # 2. Build Prompt
+    full_prompt = (
+        f"You are a Home Assistant technical expert.\n"
+        f"User Question: {user_request}\n\n"
+        f"System Context:\n{context_data}\n\n"
+        f"Analyze the above and provide a short, helpful answer."
+    )
+
+    # 3. Call API
     try:
-        # Security check: prevent reading outside /config
-        if ".." in filename or filename.startswith("/"):
-            return "Security Error: Cannot read outside config folder."
-            
-        with open(f"/config/{filename}", "r") as f:
-            return f.read()
+        response = model.generate_content(full_prompt)
+        return response.text
     except Exception as e:
-        return f"Error reading file: {str(e)}"
+        return f"Error from Gemini API: {e}"
 
-# --- MAIN LOGIC ---
+# --- MAIN LOOP ---
+print(f"Agent started. Listening for commands on entity: {PROMPT_ENTITY}")
+last_command = get_ha_state(PROMPT_ENTITY)
 
-def process_command(command):
-    print(f"Processing command: {command}")
-    send_notification("Analyzing request...", "Gemini Working")
-    
-    if not GEMINI_API_KEY:
-        send_notification("Error: Gemini API Key is missing in configuration.", "Config Error")
-        return
-
-    # Configure Gemini
-    # We use 'gemini-1.5-flash' as it is fast and cheap on tokens
+while True:
     try:
-        genai.configure(api_key=GEMINI_API_KEY)
-        model = genai.GenerativeModel('gemini-1.5-flash')
-    except Exception as e:
-        send_notification(f"Model Config Error: {e}", "Gemini Error")
-        return
-    
-    # Phase 1: Tool Selection Strategy
-    # We ask the AI to decide IF it needs data and WHAT data.
-    tool_prompt = f"""
-    You are a Home Assistant Expert Agent.
-    User Request: "{command}"
-    
-    Determine if you need to inspect the system to answer.
-    Available Tools:
-    - READ:filename  (e.g., READ:automations.yaml, READ:configuration.yaml) -> Use this to see config code.
-    - HIST:entity_id (e.g., HIST:climate.thermostat, HIST:sensor.power) -> Use this to analyze trends/history (last 24h).
-    - STATE:entity_id (e.g., STATE:sun.sun, STATE:zone.home) -> Use this to check current value/attributes.
-    - NONE -> Use this if the user is just asking a general question or chatting.
-    
-    OUTPUT FORMAT:
-    Reply ONLY with the tool code. If you need multiple, pick the SINGLE most critical one.
-    Example: READ:automations.yaml
-    """
-    
-    try:
-        res1 = model.generate_content(tool_prompt)
-        tool_req = res1.text.strip()
-        print(f"AI requested tool: {tool_req}")
+        current_command = get_ha_state(PROMPT_ENTITY)
         
-        context_data = "No additional system data retrieved."
-        
-        # Execute Tool
-        if "READ:" in tool_req:
-            fname = tool_req.split(":")[1].strip()
-            content = read_config_file(fname)
-            context_data = f"--- CONTENT OF {fname} ---\n{content}\n--- END OF FILE ---"
+        # Check if command changed and is not empty
+        if current_command and current_command != last_command and current_command != "unknown":
+            print(f"New command detected: {current_command}")
             
-        elif "HIST:" in tool_req:
-            eid = tool_req.split(":")[1].strip()
-            hist = get_history(eid)
-            context_data = f"--- HISTORY FOR {eid} (Last 24h) ---\n{hist}\n--- END OF HISTORY ---"
+            # Update last command immediately to avoid loops
+            last_command = current_command
             
-        elif "STATE:" in tool_req:
-            eid = tool_req.split(":")[1].strip()
-            try:
-                r = requests.get(f"{HA_URL}/states/{eid}", headers=HEADERS)
-                context_data = f"--- CURRENT STATE OF {eid} ---\n{r.text}\n--- END OF STATE ---"
-            except Exception as e:
-                context_data = f"Error fetching state: {e}"
-        
-        # Phase 2: Final Analysis
-        final_prompt = f"""
-        You are a smart Home Assistant assistant.
-        
-        USER COMMAND: "{command}"
-        
-        SYSTEM DATA RETRIEVED (Context):
-        {context_data}
-        
-        INSTRUCTIONS:
-        1. Answer the user's request based on the context provided.
-        2. If you see an error in the logs/history, point it out.
-        3. If the user asked for optimization (like heating), analyze the numbers.
-        4. Keep the answer concise but technical if needed.
-        """
-        
-        res2 = model.generate_content(final_prompt)
-        final_answer = res2.text
-        
-        # Send result back to HA
-        send_notification(final_answer, "Gemini Result")
-        
+            print(f"Processing command: {current_command}")
+            send_notification("Analyzing request...", "Gemini Working")
+            
+            # Analyze
+            result = analyze_with_gemini(current_command)
+            
+            # Reply
+            print("Response generated. Sending notification.")
+            send_notification(result, "Gemini Report")
+            
     except Exception as e:
         print(f"Error in process loop: {e}")
-        send_notification(f"Agent crashed: {str(e)}", "Agent Fail")
+        send_notification(f"Agent crashed: {e}", "Agent Fail")
+        time.sleep(10) # Sleep longer on error
 
-def main():
-    print("Agent started. Listening for commands on entity: " + PROMPT_ENTITY)
-    
-    # Init loop variables
-    last_cmd = ""
-    
-    # Main Loop
-    while True:
-        try:
-            r = requests.get(f"{HA_URL}/states/{PROMPT_ENTITY}", headers=HEADERS)
-            
-            if r.status_code == 200:
-                data = r.json()
-                curr = data.get("state", "")
-                
-                # Logic: Only process if state is valid, not empty, and CHANGED from last time
-                if curr and curr not in ["unknown", "unavailable", ""] and curr != last_cmd:
-                    print(f"New command detected: {curr}")
-                    last_cmd = curr # Update last command so we don't loop forever
-                    process_command(curr)
-            else:
-                print(f"Warning: Could not read {PROMPT_ENTITY}. Status: {r.status_code}")
-                
-        except Exception as e:
-            print(f"Loop error: {e}")
-            
-        # Sleep to prevent high CPU usage
-        time.sleep(5)
-
-if __name__ == "__main__":
-    main()
+    time.sleep(2)
