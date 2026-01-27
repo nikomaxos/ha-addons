@@ -1,5 +1,5 @@
 name: "Gemini Agent"
-version: "1.0.19"
+version: "1.0.20"
 slug: "gemini_agent"
 description: "AI Agent for Home Assistant"
 url: "https://github.com/nikomaxos/ha-addons"

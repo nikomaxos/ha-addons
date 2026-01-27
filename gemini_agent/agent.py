@@ -56,7 +56,6 @@ def get_system_logs():
 def analyze_and_reply(user_input):
     logs_text = get_system_logs()
     
-    # State Dump (Filtered for speed)
     states = call_ha_api("states")
     system_status = ""
     if states:
@@ -65,14 +64,14 @@ def analyze_and_reply(user_input):
                  system_status += f"{s['entity_id']}: {s['state']}\n"
     
     prompt = (
-        f"You are Jarvis. Answer concisely.\n"
+        f"You are Jarvis. Answer concisely for a chat window.\n"
         f"--- LOGS ---\n{logs_text}\n"
         f"--- STATES ---\n{system_status}\n"
         f"--- USER REQUEST ---\n{user_input}\n\n"
         f"RULES:\n"
         f"1. If user speaks Greek, reply in Greek.\n"
-        f"2. Summarize findings in 2-3 sentences max (for chat readability).\n"
-        f"3. Do not use Markdown formatting."
+        f"2. Keep it short (2 sentences).\n"
+        f"3. No markdown."
     )
     
     try:
@@ -83,8 +82,18 @@ def analyze_and_reply(user_input):
         return f"Error: {e}"
 
 # --- RUNTIME ---
-print("🚀 Agent v9.0 (Event Emitter) Starting...")
+print("🚀 Agent v9.1 (Verbose) Starting...")
+
+# API Connectivity Check
+test_connect = call_ha_api("discovery_info")
+if test_connect is not None:
+    print("✅ Connected to Home Assistant API.")
+else:
+    print("❌ API Connection Failed! Check Supervisor Token.")
+
 last_command = get_ha_state(PROMPT_ENTITY)
+print(f"👂 Listening for changes on: {PROMPT_ENTITY}")
+print(f"   (Current Value: '{last_command}')")
 
 while True:
     try:
@@ -92,14 +101,16 @@ while True:
         
         # Check if command changed AND is not empty
         if current_command and current_command != last_command and current_command not in ["", "unknown"]:
-            print(f"🗣️ Processing: {current_command}")
+            print(f"🗣️ New Command Detected: {current_command}")
             last_command = current_command
             
             # Analyze
+            print("🧠 Analyzing...")
             reply = analyze_and_reply(current_command)
             print(f"✅ Reply Ready: {reply[:30]}...")
             
-            # FIRE EVENT (This sends the text back to the waiting Script)
+            # FIRE EVENT
+            print("📤 Sending Event 'jarvis_response'...")
             call_ha_api("events/jarvis_response", "POST", {"text": reply})
             
     except Exception as e:
