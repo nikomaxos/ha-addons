@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 OPTIONS_PATH = "/data/options.json"
 MEMORY_FILE = "/config/gemini_memory.json"
 
-# Global fallback for safety
+# Safety Defaults
 HASS_API = "http://supervisor/core/api"
 HASS_TOKEN = os.getenv("SUPERVISOR_TOKEN")
 
@@ -20,7 +20,6 @@ try:
     PROMPT_ENTITY = options.get("prompt_entity", "input_text.gemini_prompt")
     USER_TOKEN = options.get("ha_token", "")
     
-    # Setup Auth based on config
     if USER_TOKEN:
         print("🔑 Auth: User Token (Direct)")
         HASS_TOKEN = USER_TOKEN
@@ -30,7 +29,6 @@ try:
 
 except Exception as e:
     print(f"Error loading options: {e}")
-    # Don't exit, try to stay alive to report error
     pass
 
 genai.configure(api_key=API_KEY)
@@ -47,7 +45,6 @@ def call_ha_api(endpoint, method="GET", data=None):
     url = f"{base}/{path}"
     
     try:
-        # Timeout increased to 60s for heavy history queries
         if method == "GET":
             response = requests.get(url, headers=headers, timeout=60)
         else:
@@ -56,9 +53,6 @@ def call_ha_api(endpoint, method="GET", data=None):
         if response.status_code < 300:
             return response.json()
         print(f"⚠️ API Status {response.status_code} for {url}")
-        return None
-    except requests.exceptions.Timeout:
-        print(f"⏰ API TIMEOUT for {url}")
         return None
     except Exception as e:
         print(f"❌ API Error [{endpoint}]: {e}")
@@ -70,90 +64,108 @@ def get_ha_state(entity_id):
         return res.get("state", "")
     return ""
 
-# --- MEMORY SYSTEM ---
+# --- MEMORY (FIXED SYNTAX) ---
 def load_memory():
     if os.path.exists(MEMORY_FILE):
         try:
             with open(MEMORY_FILE, "r") as f:
                 return json.load(f)
-        except: return []
+        except:
+            return []
     return []
 
 def save_memory(user, agent):
     mem = load_memory()
     mem.append({"timestamp": datetime.now().isoformat(), "role": "user", "text": user})
     mem.append({"timestamp": datetime.now().isoformat(), "role": "assistant", "text": agent})
-    if len(mem) > 10: mem = mem[-10:]
+    
+    # Keep last 10 messages
+    if len(mem) > 10:
+        mem = mem[-10:]
+        
     try:
-        with open(MEMORY_FILE, "w") as f: json.dump(mem, f, indent=2)
-    except: pass
+        with open(MEMORY_FILE, "w") as f:
+            json.dump(mem, f, indent=2)
+    except:
+        pass
 
 def get_memory_string():
     mem = load_memory()
-    if not mem: return "No context."
-    return "\n".join([f"{m['role'].upper()}: {m['text']}" for m in mem])
+    if not mem:
+        return "No context."
+    output = []
+    for m in mem:
+        output.append(f"{m['role'].upper()}: {m['text']}")
+    return "\n".join(output)
 
-# --- SEMANTIC MAPPING ---
-DOMAIN_MAP = {
-    "light": ["light"], "φως": ["light"], "φώτα": ["light"],
-    "διακόπτ": ["switch", "light"], "switch": ["switch"],
-    "θερμανση": ["climate", "sensor"], "heating": ["climate", "sensor"],
-    "καλοριφερ": ["climate", "switch"], "aircon": ["climate"],
-    "κλιματιστ": ["climate"], "thermostat": ["climate"],
-    "θερμοκρασ": ["sensor", "climate"], "temp": ["sensor", "climate"],
-    "υγρασια": ["sensor"], "humidity": ["sensor"],
-    "πόρτα": ["binary_sensor", "cover"], "door": ["binary_sensor", "cover"],
-    "παραθυρ": ["binary_sensor", "cover"], "window": ["binary_sensor", "cover"]
-}
-
+# --- HISTORY ENGINE (CATEGORY BASED) ---
 def get_relevant_history(user_input):
-    """Robust History Fetcher"""
+    """
+    Fetches history based on category detection (Temperature, Light, Cover).
+    """
     try:
         # 1. Timeframe
         lookback_hours = 24
         lower_input = user_input.lower()
         
-        if "εβδομάδα" in lower_input or "week" in lower_input: lookback_hours = 168
-        elif "μήνα" in lower_input or "month" in lower_input: lookback_hours = 720
-        elif "μέρες" in lower_input: lookback_hours = 72
-        elif "ώρα" in lower_input or "hour" in lower_input: lookback_hours = 4
+        if "εβδομάδα" in lower_input or "week" in lower_input:
+            lookback_hours = 168
+        elif "μήνα" in lower_input:
+            lookback_hours = 720
+        elif "μέρες" in lower_input:
+            lookback_hours = 72
+        elif "ώρα" in lower_input or "hour" in lower_input:
+            lookback_hours = 4
         
-        print(f"🕒 Timeframe detected: {lookback_hours} hours")
+        print(f"🕒 Timeframe: {lookback_hours}h")
         start_time = (datetime.utcnow() - timedelta(hours=lookback_hours)).isoformat()
         
         # 2. Get All States
         states = call_ha_api("states")
-        if not states: return "Error: Could not fetch system states."
+        if not states:
+            return "Error: No states."
         
-        # 3. Semantic Search
+        # 3. Detect Category Intent
         target_entities = []
-        found_domains = set()
         
-        # Check Keywords
-        for keyword, domains in DOMAIN_MAP.items():
-            if keyword in lower_input:
-                found_domains.update(domains)
-                print(f"🔎 Keyword '{keyword}' -> Domains: {domains}")
-
-        # Check Name Matches
-        user_words = [w for w in lower_input.split() if len(w) > 3]
+        # Keywords
+        is_temp_query = any(w in lower_input for w in ["θερμοκρασ", "temp", "βαθμ", "klimat", "κλιματ", "heating", "θερμανσ", "heat"])
+        is_light_query = any(w in lower_input for w in ["light", "φως", "φώτα", "διακοπτ", "switch"])
+        is_cover_query = any(w in lower_input for w in ["porta", "πόρτα", "παραθυρ", "window", "cover"])
         
         for s in states:
             eid = s['entity_id'].lower()
-            domain = eid.split('.')[0]
-            name = s.get('attributes', {}).get('friendly_name', '').lower()
+            attrs = s.get('attributes', {})
+            unit = attrs.get('unit_of_measurement', '')
+            dev_class = attrs.get('device_class', '')
             
-            is_in_domain = domain in found_domains
-            name_match = any(w in eid or w in name for w in user_words)
+            match = False
             
-            if (is_in_domain or name_match) and "update" not in eid:
+            # Category Logic
+            if is_temp_query:
+                if eid.startswith("climate."): match = True
+                if unit in ['°C', '°F']: match = True
+                if 'temperature' in str(dev_class): match = True
+            
+            if is_light_query:
+                if eid.startswith("light.") or eid.startswith("switch."): match = True
+                
+            if is_cover_query:
+                if eid.startswith("cover.") or eid.startswith("binary_sensor."): match = True
+                
+            # Fallback Keyword Match
+            if not match and not (is_temp_query or is_light_query or is_cover_query):
+                 user_words = [w for w in lower_input.split() if len(w) > 3]
+                 if any(w in eid for w in user_words): match = True
+
+            if match and "update" not in eid:
                 target_entities.append(s['entity_id'])
 
         if not target_entities:
-            return f"No entities found for domains: {found_domains}"
+            return "No relevant sensors found for this category."
 
-        # Limit to top 15 to prevent timeout
-        final_list = target_entities[:15]
+        # Limit to top 20
+        final_list = target_entities[:20]
         print(f"🎯 Fetching History for: {final_list}")
         
         # 4. History API Call
@@ -161,62 +173,59 @@ def get_relevant_history(user_input):
         endpoint = f"history/period/{start_time}?filter_entity_id={entity_filter}"
         
         history_data = call_ha_api(endpoint)
-        
-        if not history_data: return "History API returned no data (or timed out)."
+        if not history_data:
+            return "API returned no history data."
         
         summary = []
         for entity_history in history_data:
-            if not entity_history: continue
+            if not entity_history:
+                continue
+                
             eid = entity_history[0]['entity_id']
             readings = []
             
-            # Sampling logic
+            # Sampling
             step = 1
-            if lookback_hours > 24: step = 10
-            if lookback_hours > 100: step = 50
+            if lookback_hours > 24:
+                step = 10
             
             for entry in entity_history[::step]: 
                 state = entry.get('state')
-                # Extract attributes specifically for climate
                 attrs = entry.get('attributes', {})
-                hvac_action = attrs.get('hvac_action', '')
-                current_temp = attrs.get('current_temperature', '')
                 
+                # Enrich data
                 val = state
-                details = []
-                if hvac_action: details.append(f"Action:{hvac_action}")
-                if current_temp: details.append(f"Temp:{current_temp}")
+                if eid.startswith("climate."):
+                    action = attrs.get('hvac_action', '')
+                    curr = attrs.get('current_temperature', '')
+                    if action or curr:
+                        val = f"{state} (Action:{action}, Cur:{curr})"
                 
-                if details: val = f"{state} ({','.join(details)})"
-                    
                 if state not in ['unknown', 'unavailable']:
                     try:
                         ts_obj = datetime.fromisoformat(entry['last_changed'].replace("Z", "+00:00"))
-                        # Rough formatting
                         fmt = "%H:%M" if lookback_hours < 48 else "%d/%m %H:%M"
                         ts = ts_obj.strftime(fmt)
                         readings.append(f"[{ts}={val}]")
-                    except: pass
+                    except:
+                        pass
             
             if readings:
-                # Limit readings per entity to avoid token overflow
-                data_str = ", ".join(readings[-100:]) 
+                data_str = ", ".join(readings[-100:])
                 summary.append(f"ENTITY: {eid}\nDATA: {data_str}\n")
                 
         return "\n".join(summary)
-        
+
     except Exception as e:
-        print(f"🔥 History Error: {e}")
-        return f"Error fetching history: {e}"
+        return f"History Error: {e}"
 
 # --- MAIN LOGIC ---
 def analyze_and_reply(user_input):
     try:
         memory = get_memory_string()
-        print("🧠 Fetching History...")
         history_context = get_relevant_history(user_input)
         
-        # Current States (Lightweight)
+        # Current States
         current_status = ""
         states = call_ha_api("states")
         if states:
@@ -232,12 +241,11 @@ def analyze_and_reply(user_input):
             f"--- CURRENT STATE ---\n{current_status}\n"
             f"--- MEMORY ---\n{memory}\n"
             f"--- USER REQUEST ---\n{user_input}\n\n"
-            f"INSTRUCTIONS:\n"
+            f"RULES:\n"
             f"1. Check 'DATA' lines. Timestamps are [HH:MM=State].\n"
-            f"2. For Heating Duration: Look for 'Action:heating' or state 'heat'.\n"
-            f"3. Sum up the duration manually.\n"
-            f"4. If no data, explain what entities you checked.\n"
-            f"5. Reply in Greek."
+            f"2. You have ALL sensors of the requested category. Find the right one using common sense (e.g. 'saloniou' matches 'salon').\n"
+            f"3. For heating, look for 'Action:heating' or state 'heat'.\n"
+            f"4. Reply in Greek."
         )
         
         response = model.generate_content(prompt)
@@ -245,11 +253,10 @@ def analyze_and_reply(user_input):
         return text
         
     except Exception as e:
-        print(f"🔥 AI Analysis Error: {e}")
-        return f"Σφάλμα κατά την ανάλυση: {e}"
+        return f"Analysis Error: {e}"
 
 # --- RUNTIME ---
-print("🚀 Agent v16.1 (Safe Mode) Starting...")
+print("🚀 Agent v17.1 (Syntax Clean) Starting...")
 print(f"👂 Listening on {PROMPT_ENTITY}")
 
 last_command = get_ha_state(PROMPT_ENTITY)
@@ -262,17 +269,13 @@ while True:
             print(f"🗣️ NEW: {current_command}")
             last_command = current_command
             
-            # --- EXECUTION BLOCK ---
-            reply = "..."
             try:
                 reply = analyze_and_reply(current_command)
                 save_memory(current_command, reply)
             except Exception as final_e:
-                reply = f"Critical Error: {final_e}"
+                reply = f"Error: {final_e}"
             
             print(f"✅ Reply: {reply[:50]}...")
-            
-            # GUARANTEED EVENT FIRE
             call_ha_api("events/jarvis_response", "POST", {"text": reply})
             
     except Exception as e:
