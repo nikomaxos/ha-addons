@@ -7,6 +7,8 @@ import datetime
 
 # --- CONFIGURATION ---
 OPTIONS_PATH = "/data/options.json"
+MEMORY_FILE = "/config/gemini_memory.json"
+AUTOMATIONS_FILE = "/config/automations.yaml"
 HASS_TOKEN = os.getenv("SUPERVISOR_TOKEN")
 HASS_API = "http://supervisor/core/api"
 
@@ -20,201 +22,160 @@ except Exception as e:
     print(f"Error loading options: {e}")
     exit(1)
 
-# Configure Gemini
 genai.configure(api_key=API_KEY)
-MODEL_NAME = 'gemini-2.5-pro' 
-print(f"Initializing God-Mode Agent with model: {MODEL_NAME}")
-model = genai.GenerativeModel(MODEL_NAME)
+# Χρησιμοποιούμε το 2.5 Pro για μέγιστη ευφυΐα και μνήμη
+model = genai.GenerativeModel('gemini-2.5-pro')
 
-# --- CORE FUNCTIONS ---
-
+# --- API HELPER ---
 def call_ha_api(endpoint, method="GET", data=None):
-    """Generic function to call Home Assistant API."""
-    headers = {
-        "Authorization": f"Bearer {HASS_TOKEN}",
-        "Content-Type": "application/json",
-    }
+    headers = {"Authorization": f"Bearer {HASS_TOKEN}", "Content-Type": "application/json"}
     try:
         if method == "GET":
             response = requests.get(f"{HASS_API}/{endpoint}", headers=headers)
         else:
             response = requests.post(f"{HASS_API}/{endpoint}", headers=headers, json=data)
-        
-        if response.status_code < 300:
-            return response.json() if response.content else {"status": "ok"}
-        else:
-            print(f"API Error {endpoint}: {response.text}")
-            return None
-    except Exception as e:
-        print(f"Request Error: {e}")
+        return response.json() if response.status_code < 300 else None
+    except:
         return None
 
-def send_notification(message, title="Gemini Agent"):
-    call_ha_api("services/persistent_notification/create", "POST", {"message": message, "title": title})
-
 def get_ha_state(entity_id):
-    state_data = call_ha_api(f"states/{entity_id}")
-    return state_data.get("state", "") if state_data else ""
+    res = call_ha_api(f"states/{entity_id}")
+    return res.get("state", "") if res else ""
 
-# --- GOD MODE: INFO GATHERING ---
-
-def get_all_entities_summary():
-    """Fetches a summary of ALL entities and their current states."""
-    states = call_ha_api("states")
-    if not states: return "No states found."
-    
-    summary = []
-    for s in states:
-        eid = s['entity_id']
-        state = s['state']
-        # Filter out massive text blobs to save space
-        if len(str(state)) < 200: 
-            summary.append(f"{eid}: {state}")
-    return "\n".join(summary)
-
-def read_config_files():
-    """Reads key YAML files to understand automation logic."""
-    files_to_read = [
-        "/config/automations.yaml",
-        "/config/scripts.yaml",
-        "/config/configuration.yaml",
-        "/config/scenes.yaml"
-    ]
-    config_dump = ""
-    for file_path in files_to_read:
-        if os.path.exists(file_path):
-            try:
-                with open(file_path, "r") as f:
-                    content = f.read()
-                    # Limit very large files
-                    if len(content) > 50000: content = content[:50000] + "\n...[TRUNCATED]"
-                    config_dump += f"\n--- FILE: {file_path} ---\n{content}\n"
-            except Exception as e:
-                config_dump += f"\nError reading {file_path}: {e}\n"
-    return config_dump
-
-def get_smart_history(user_request):
+# --- SELF-INSTALLATION ENGINE (The Constructor) ---
+def install_infrastructure():
     """
-    Intelligently fetches history ONLY for entities mentioned in the user request.
-    Fetching 'everything' is impossible (too much data), so we filter.
+    Checks if the necessary automations exist in automations.yaml.
+    If not, it INJECTS them automatically and reloads HA.
     """
-    # 1. Get all entity IDs
-    all_states = call_ha_api("states")
-    all_ids = [s['entity_id'] for s in all_states] if all_states else []
+    print("👷 Checking Infrastructure...")
     
-    # 2. Find which entities are relevant to the user's question
-    relevant_entities = [eid for eid in all_ids if eid in user_request]
-    
-    if not relevant_entities:
-        return "No specific entities identified in request for historical analysis."
-
-    # 3. Fetch history for those entities (last 24 hours default, or more)
-    # Note: For simplicity we fetch 48 hours. Can be extended.
-    history_data = ""
-    timestamp = datetime.datetime.now() - datetime.timedelta(hours=48)
-    time_str = timestamp.isoformat()
-    
-    print(f"Fetching history for: {relevant_entities}")
-    
-    # Use History API
-    filter_str = ",".join(relevant_entities)
-    data = call_ha_api(f"history/period/{time_str}?filter_entity_id={filter_str}&minimal_response=true")
-    
-    if data:
-        # Convert JSON to a readable summary string
-        history_data = json.dumps(data, indent=1)
-        # Limit size just in case
-        if len(history_data) > 100000: history_data = history_data[:100000] + "...[TRUNCATED]"
-        return history_data
-    else:
-        return "History API returned no data."
-
-def execute_action(action_json):
-    """Executes an action requested by the AI."""
+    jarvis_automation_yaml = """
+# --- JARVIS AI AUTO-GENERATED AUTOMATION ---
+- id: 'jarvis_voice_loop_v1'
+  alias: 'Jarvis Voice Loop (Auto-Generated)'
+  description: 'Handles TTS and re-opens the microphone for conversation.'
+  trigger:
+  - platform: event
+    event_type: jarvis_response
+  action:
+  - service: tts.google_translate_say
+    data:
+      entity_id: all  # WARNING: Speaks on ALL speakers by default. Change this if needed.
+      message: "{{ trigger.event.data.text }}"
+  - delay:
+      hours: 0
+      minutes: 0
+      seconds: "{{ (trigger.event.data.text | length / 12) | int + 2 }}" # Dynamic delay based on text length
+  - service: assist_satellite.start_listening
+    target:
+      all: true # Forces ALL satellites to listen. Change to specific entity if needed.
+    data: {}
+  mode: restart
+# -------------------------------------------
+"""
     try:
-        cmd = json.loads(action_json)
-        domain, service = cmd['service'].split('.')
-        target = cmd.get('target', {})
-        data = cmd.get('data', {})
+        current_content = ""
+        if os.path.exists(AUTOMATIONS_FILE):
+            with open(AUTOMATIONS_FILE, "r") as f:
+                current_content = f.read()
         
-        full_payload = {**target, **data}
-        
-        print(f"EXECUTING ACTION: {domain}.{service} with {full_payload}")
-        call_ha_api(f"services/{domain}/{service}", "POST", full_payload)
-        return True
+        # Check if already installed
+        if "id: 'jarvis_voice_loop_v1'" not in current_content:
+            print("⚙️ Infrastructure missing. Injecting Automation...")
+            with open(AUTOMATIONS_FILE, "a") as f:
+                f.write("\n" + jarvis_automation_yaml)
+            
+            print("🔄 Reloading Automations...")
+            call_ha_api("services/automation/reload", "POST")
+            print("✅ Infrastructure Installed Successfully.")
+        else:
+            print("✅ Infrastructure already exists.")
+            
     except Exception as e:
-        print(f"Action Execution Failed: {e}")
-        return False
+        print(f"❌ Failed to install infrastructure: {e}")
 
-# --- MAIN ANALYSIS ENGINE ---
+# --- MEMORY SYSTEM ---
+def load_memory():
+    if os.path.exists(MEMORY_FILE):
+        try:
+            with open(MEMORY_FILE, "r") as f: return json.load(f)
+        except: return []
+    return []
 
-def analyze_with_gemini(user_request):
-    print("Gathering System Context...")
-    
-    # 1. Get Structure (Configs)
-    config_context = read_config_files()
-    
-    # 2. Get Current Status (Real-time)
-    state_context = get_all_entities_summary()
-    
-    # 3. Get History (Targeted)
-    history_context = get_smart_history(user_request)
+def save_memory(user, agent):
+    mem = load_memory()
+    mem.append({"timestamp": datetime.datetime.now().isoformat(), "user": user, "agent": agent})
+    if len(mem) > 30: mem = mem[-30:] # Keep last 30 turns
+    with open(MEMORY_FILE, "w") as f: json.dump(mem, f, indent=2)
 
-    full_prompt = (
-        f"You are the 'Home Assistant Architect'. You have full read/write access.\n"
-        f"User Request: {user_request}\n\n"
-        f"--- CURRENT STATE OF ALL ENTITIES ---\n{state_context}\n\n"
-        f"--- CONFIGURATION & LOGIC (YAML) ---\n{config_context}\n\n"
-        f"--- HISTORICAL DATA (Targeted) ---\n{history_context}\n\n"
+def get_memory_string():
+    mem = load_memory()
+    return "\n".join([f"User: {m['user']}\nAI: {m['agent']}" for m in mem[-4:]])
+
+# --- MAIN LOGIC ---
+def analyze_and_reply(user_input):
+    print("🧠 Thinking...")
+    
+    # Context Gathering
+    memory = get_memory_string()
+    
+    # Smart Data Fetching (States & Config)
+    # (Simplified for speed - fetches problematic entities)
+    states = call_ha_api("states")
+    system_status = ""
+    if states:
+        for s in states:
+            if s['state'] in ['unavailable', 'unknown'] or "sensor" in s['entity_id']:
+                 system_status += f"{s['entity_id']}: {s['state']}\n"
+    system_status = system_status[:5000] # Limit size
+
+    prompt = (
+        f"You are Jarvis, the Home Assistant Voice AI.\n"
+        f"--- MEMORY ---\n{memory}\n"
+        f"--- SYSTEM STATUS ---\n{system_status}\n"
+        f"--- USER INPUT ---\n{user_input}\n\n"
         f"INSTRUCTIONS:\n"
-        f"1. Analyze the system deeply based on the user request.\n"
-        f"2. If the user asks to CHANGE something (turn on/off, set temp), output a JSON block ONLY for the action.\n"
-        f"   Format: {{'service': 'domain.service', 'target': {{'entity_id': '...'}}, 'data': {{...}}}}\n"
-        f"3. If the user asks for analysis, explain clearly in Greek/English.\n"
-        f"4. If you spot configuration errors in YAML, point them out."
+        f"1. You are in a SPOKEN conversation loop.\n"
+        f"2. Answer concisely. Do not list long IDs.\n"
+        f"3. If you ask a question, the microphone will open automatically for the user to reply.\n"
+        f"4. Be helpful and proactive."
     )
-
+    
     try:
-        response = model.generate_content(full_prompt)
-        text = response.text
-        
-        # Check if AI wants to execute an action (JSON detection)
-        if "{" in text and "service" in text:
-            # Try to extract and execute JSON
-            try:
-                start = text.find("{")
-                end = text.rfind("}") + 1
-                json_str = text[start:end]
-                execute_action(json_str)
-                return f"Action Executed. AI Analysis: {text}"
-            except:
-                pass # Just return text if JSON fails
-                
+        response = model.generate_content(prompt)
+        text = response.text.replace("*", "") # Remove markdown for TTS
         return text
     except Exception as e:
-        return f"Gemini API Error: {e}"
+        return f"Error: {e}"
 
-# --- MAIN LOOP ---
-print(f"GOD MODE Agent started. Listening on: {PROMPT_ENTITY}")
+# --- RUNTIME ---
+print("🚀 Agent v6.0 Starting...")
+install_infrastructure() # <--- Εδώ γίνεται η αυτόματη εγκατάσταση
+print(f"👂 Listening on {PROMPT_ENTITY}")
+
 last_command = get_ha_state(PROMPT_ENTITY)
 
 while True:
     try:
         current_command = get_ha_state(PROMPT_ENTITY)
         
-        if current_command and current_command != last_command and current_command != "unknown":
-            print(f"New command: {current_command}")
-            last_command = current_command 
+        if current_command and current_command != last_command and current_command not in ["", "unknown"]:
+            print(f"🗣️ Command: {current_command}")
+            last_command = current_command
             
-            send_notification("Analyzing System (Deep Scan)...", "Agent Working")
+            # Analyze
+            reply = analyze_and_reply(current_command)
             
-            result = analyze_with_gemini(current_command)
+            # Save Memory
+            save_memory(current_command, reply)
             
-            print("Response ready.")
-            send_notification(result[:1500], "Gemini Architect Report") # Limit notification size
+            # Trigger TTS & Loop via the injected automation
+            print(f"🔊 Speaking: {reply[:50]}...")
+            call_ha_api("events/jarvis_response", "POST", {"text": reply})
             
     except Exception as e:
         print(f"Loop Error: {e}")
         time.sleep(5)
-
-    time.sleep(2)
+    
+    time.sleep(1.5)
