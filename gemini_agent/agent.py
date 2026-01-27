@@ -33,15 +33,20 @@ def call_ha_api(endpoint, method="GET", data=None):
             response = requests.get(f"{HASS_API}/{endpoint}", headers=headers)
         else:
             response = requests.post(f"{HASS_API}/{endpoint}", headers=headers, json=data)
-        return response.json() if response.status_code < 300 else None
+        
+        if response.status_code < 300:
+            return response.json()
+        return None
     except:
         return None
 
 def get_ha_state(entity_id):
     res = call_ha_api(f"states/{entity_id}")
-    return res.get("state", "") if res else ""
+    if res:
+        return res.get("state", "")
+    return ""
 
-# --- LOG READER (CRITICAL FIX) ---
+# --- LOG READER ---
 def get_system_logs():
     """Reads the actual text log file properly."""
     log_files = ["/config/home-assistant.log.1", "/config/home-assistant.log"]
@@ -51,14 +56,16 @@ def get_system_logs():
             try:
                 with open(log_path, "r") as f:
                     lines = f.readlines()
-                    # Παίρνουμε τις τελευταίες 40 γραμμές που έχουν τη λέξη ERROR ή WARNING
+                    # Filter for errors/warnings
                     filtered = [line for line in lines[-100:] if "ERROR" in line or "WARNING" in line]
-                    if not filtered: filtered = lines[-20:] # Fallback
+                    if not filtered: 
+                        filtered = lines[-20:] # Fallback
                     logs += f"--- LOG FILE: {log_path} ---\n" + "".join(filtered) + "\n"
-            except: pass
+            except:
+                pass
     return logs[:5000]
 
-# --- THE CONSTRUCTOR (No changes needed here, v3 is good) ---
+# --- THE CONSTRUCTOR ---
 def install_infrastructure():
     print("👷 Checking Infrastructure...")
     jarvis_automation_yaml = """
@@ -95,46 +102,59 @@ def install_infrastructure():
     try:
         current_content = ""
         if os.path.exists(AUTOMATIONS_FILE):
-            with open(AUTOMATIONS_FILE, "r") as f: current_content = f.read()
+            with open(AUTOMATIONS_FILE, "r") as f:
+                current_content = f.read()
+        
         if "id: 'jarvis_voice_loop_v3'" not in current_content:
             print("⚙️ Injecting Fixed Automation (v3)...")
-            with open(AUTOMATIONS_FILE, "a") as f: f.write("\n" + jarvis_automation_yaml)
+            with open(AUTOMATIONS_FILE, "a") as f:
+                f.write("\n" + jarvis_automation_yaml)
             call_ha_api("services/automation/reload", "POST")
-    except: pass
+    except Exception as e:
+        print(f"Infrastructure Error: {e}")
 
 # --- MEMORY SYSTEM ---
 def load_memory():
     if os.path.exists(MEMORY_FILE):
-        try: with open(MEMORY_FILE, "r") as f: return json.load(f)
-        except: return []
+        try:
+            with open(MEMORY_FILE, "r") as f:
+                return json.load(f)
+        except:
+            return []
     return []
 
 def save_memory(user, agent):
     mem = load_memory()
     mem.append({"timestamp": datetime.datetime.now().isoformat(), "user": user, "agent": agent})
-    if len(mem) > 30: mem = mem[-30:]
-    with open(MEMORY_FILE, "w") as f: json.dump(mem, f, indent=2)
+    if len(mem) > 30:
+        mem = mem[-30:]
+    with open(MEMORY_FILE, "w") as f:
+        json.dump(mem, f, indent=2)
 
 def get_memory_string():
     mem = load_memory()
-    return "\n".join([f"User: {m['user']}\nAI: {m['agent']}" for m in mem[-4:]])
+    output = []
+    for m in mem[-4:]:
+        output.append(f"User: {m['user']}\nAI: {m['agent']}")
+    return "\n".join(output)
 
-# --- MAIN LOGIC (SAFETY UPDATE) ---
+# --- MAIN LOGIC ---
 def analyze_and_reply(user_input):
     print("🧠 Thinking...")
     memory = get_memory_string()
     
-    # 1. READ LOGS (Always read them so AI knows them)
+    # 1. READ LOGS
     logs_text = get_system_logs()
     
-    # 2. STATE DUMP (Filtered)
+    # 2. STATE DUMP
     states = call_ha_api("states")
     system_status = ""
     if states:
         for s in states:
-            # Δίνουμε στον AI μόνο τα απαραίτητα για να μην μπερδεύεται
-            if s['state'] not in ['unknown', 'unavailable'] and ("light" in s['entity_id'] or "switch" in s['entity_id'] or "climate" in s['entity_id'] or "cover" in s['entity_id']):
-                 system_status += f"{s['entity_id']}: {s['state']}\n"
+            if s['state'] not in ['unknown', 'unavailable']:
+                eid = s['entity_id']
+                if "light" in eid or "switch" in eid or "climate" in eid or "cover" in eid:
+                     system_status += f"{eid}: {s['state']}\n"
     
     # 3. SAFETY PROMPT
     prompt = (
@@ -160,7 +180,7 @@ def analyze_and_reply(user_input):
         return f"Error analyzing: {e}"
 
 # --- RUNTIME ---
-print("🚀 Agent v7.0 (Safety Guardrails) Starting...")
+print("🚀 Agent v7.1 (Clean Syntax) Starting...")
 install_infrastructure()
 print(f"👂 Listening on {PROMPT_ENTITY}")
 
