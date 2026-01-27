@@ -41,15 +41,14 @@ def get_ha_state(entity_id):
     res = call_ha_api(f"states/{entity_id}")
     return res.get("state", "") if res else ""
 
-# --- THE CONSTRUCTOR (UPDATED FIX) ---
+# --- THE CONSTRUCTOR (AUTOMATION INSTALLER) ---
 def install_infrastructure():
     print("👷 Checking Infrastructure...")
     
     # ΔΙΟΡΘΩΜΕΝΟΣ ΑΥΤΟΜΑΤΙΣΜΟΣ
-    # Χρησιμοποιεί template για να βρει τα satellites αντί για 'all: true'
     jarvis_automation_yaml = """
-# --- JARVIS AI AUTO-GENERATED AUTOMATION (FIXED) ---
-- id: 'jarvis_voice_loop_v2'
+# --- JARVIS AI AUTO-GENERATED AUTOMATION (FIXED v3) ---
+- id: 'jarvis_voice_loop_v3'
   alias: 'Jarvis Voice Loop (Auto-Generated)'
   description: 'Handles TTS and re-opens the microphone seamlessly.'
   trigger:
@@ -69,7 +68,6 @@ def install_infrastructure():
       seconds: "{{ (trigger.event.data.text | length / 11) | int + 2 }}"
   
   # 3. Re-open Microphone (Fixed Logic)
-  # Checks if any satellite exists before trying to open it
   - if:
       - condition: template
         value_template: "{{ states.assist_satellite | count > 0 }}"
@@ -90,9 +88,9 @@ def install_infrastructure():
             with open(AUTOMATIONS_FILE, "r") as f:
                 current_content = f.read()
         
-        # Check if v2 is installed
-        if "id: 'jarvis_voice_loop_v2'" not in current_content:
-            print("⚙️ Injecting Fixed Automation (v2)...")
+        # Check if v3 is installed
+        if "id: 'jarvis_voice_loop_v3'" not in current_content:
+            print("⚙️ Injecting Fixed Automation (v3)...")
             with open(AUTOMATIONS_FILE, "a") as f:
                 f.write("\n" + jarvis_automation_yaml)
             
@@ -105,18 +103,22 @@ def install_infrastructure():
     except Exception as e:
         print(f"❌ Failed to install infrastructure: {e}")
 
-# --- MEMORY SYSTEM ---
+# --- MEMORY SYSTEM (SYNTAX FIXED) ---
 def load_memory():
     if os.path.exists(MEMORY_FILE):
-        try: with open(MEMORY_FILE, "r") as f: return json.load(f)
-        except: return []
+        try:
+            with open(MEMORY_FILE, "r") as f:
+                return json.load(f)
+        except:
+            return []
     return []
 
 def save_memory(user, agent):
     mem = load_memory()
     mem.append({"timestamp": datetime.datetime.now().isoformat(), "user": user, "agent": agent})
     if len(mem) > 30: mem = mem[-30:]
-    with open(MEMORY_FILE, "w") as f: json.dump(mem, f, indent=2)
+    with open(MEMORY_FILE, "w") as f:
+        json.dump(mem, f, indent=2)
 
 def get_memory_string():
     mem = load_memory()
@@ -132,7 +134,6 @@ def analyze_and_reply(user_input):
     system_status = ""
     if states:
         for s in states:
-            # Προσθέτουμε λίγα περισσότερα δεδομένα για να έχει context
             if s['state'] not in ['unknown'] and ("light" in s['entity_id'] or "switch" in s['entity_id'] or "sensor" in s['entity_id']):
                  system_status += f"{s['entity_id']}: {s['state']}\n"
     system_status = system_status[:4000]
@@ -156,7 +157,7 @@ def analyze_and_reply(user_input):
         return f"Error: {e}"
 
 # --- RUNTIME ---
-print("🚀 Agent v6.1 (Fix) Starting...")
+print("🚀 Agent v6.2 (Syntax Fix) Starting...")
 install_infrastructure()
 print(f"👂 Listening on {PROMPT_ENTITY}")
 
