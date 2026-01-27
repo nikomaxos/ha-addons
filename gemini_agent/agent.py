@@ -74,10 +74,10 @@ def process_command(command):
         return
 
     # Configure Gemini
-    # We use 'gemini-1.5-pro' as it is fast and cheap on tokens
+    # We use 'gemini-1.5-flash' as it is fast and cheap on tokens
     try:
         genai.configure(api_key=GEMINI_API_KEY)
-        model = genai.GenerativeModel('gemini-1.5-pro')
+        model = genai.GenerativeModel('gemini-1.5-flash')
     except Exception as e:
         send_notification(f"Model Config Error: {e}", "Gemini Error")
         return
