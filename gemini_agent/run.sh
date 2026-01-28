@@ -1,5 +1,7 @@
-#!/bin/bash
-echo "Starting Gemini AI Middleware Agent (Clean Build)..."
+#!/usr/bin/with-contenv bashio
 
-# Εκτέλεση του python script
-python3 -u /agent.py
+bashio::log.info "Starting Jarvis AI Professional (v20.0)..."
+bashio::log.info "Initializing System..."
+
+# Εκτέλεση του python script με Unbuffered output (-u) για να βλέπεις τα logs αμέσως
+exec python3 -u /agent.py
