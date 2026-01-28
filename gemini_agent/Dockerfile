@@ -13,11 +13,8 @@ COPY agent.py /
 # 4. Διόρθωση του Python αρχείου (για να είμαστε 100% σίγουροι)
 RUN dos2unix /agent.py
 
-# 5. ΔΗΜΙΟΥΡΓΙΑ RUN SCRIPT (BARE METAL VERSION)
-# Αφαιρέσαμε το 'with-contenv bashio'. Τώρα είναι απλό Linux script.
-# Δεν θα κρασάρει ποτέ με PID 1 error.
-RUN mkdir -p /etc/services.d/jarvis && \
-    echo '#!/bin/bash' > /etc/services.d/jarvis/run && \
-    echo 'echo "Starting Jarvis AI Professional (v20.0)..."' >> /etc/services.d/jarvis/run && \
-    echo 'exec python3 -u /agent.py' >> /etc/services.d/jarvis/run && \
-    chmod +x /etc/services.d/jarvis/run
+# 5. ΔΗΜΙΟΥΡΓΙΑ SERVICE (Με νέο όνομα 'gemini_service' για να αποφύγουμε την cache)
+# Χρησιμοποιούμε /bin/sh που είναι native στο Alpine Linux.
+RUN mkdir -p /etc/services.d/gemini_service && \
+    printf "#!/bin/sh\necho 'Starting Jarvis AI Pro (Clean Service)...'\nexec python3 -u /agent.py\n" > /etc/services.d/gemini_service/run && \
+    chmod +x /etc/services.d/gemini_service/run
