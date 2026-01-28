@@ -5,7 +5,8 @@ FROM $BUILD_FROM
 RUN apk add --no-cache python3 py3-pip
 
 # Install dependencies for Timezone & AI
-RUN pip install requests google-generativeai pytz python-dateutil
+# ΠΡΟΣΟΧΗ: Προστέθηκε το --break-system-packages για να παρακάμψει το PEP 668
+RUN pip install requests google-generativeai pytz python-dateutil --break-system-packages
 
 # Copy data for add-on
 COPY run.sh /
