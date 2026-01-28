@@ -1,5 +1,5 @@
 name: "Jarvis AI Professional"
-version: "21.0"
+version: "21.1"
 slug: "jarvis_ai_pro"
 description: "Enterprise-grade AI Agent (Native Docker Mode)"
 startup: application
