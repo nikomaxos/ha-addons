@@ -1,5 +1,5 @@
 name: "Jarvis AI Professional"
-version: "22.0"
+version: "22.1"
 slug: "jarvis_ai_pro"
 description: "Enterprise AI Agent (Native Mode - Debug Edition)"
 startup: application
