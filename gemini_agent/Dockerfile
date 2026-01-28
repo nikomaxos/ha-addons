@@ -1,15 +1,19 @@
 ARG BUILD_FROM
 FROM $BUILD_FROM
 
-# 1. Εγκατάσταση Python
-RUN apk add --no-cache python3 py3-pip dos2unix
+# Setup Environment
+ENV LANG C.UTF-8
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
 
-# 2. Εγκατάσταση Νέας Βιβλιοθήκης Google (google-genai)
-RUN pip install requests google-genai pytz python-dateutil --break-system-packages
+# Install Dependencies
+RUN apk add --no-cache python3 py3-pip git
 
-# 3. Αντιγραφή και Καθαρισμός
+# Install Libraries (Force google-genai upgrade)
+RUN pip install requests pytz python-dateutil google-genai --break-system-packages
+
+# Copy Agent
 COPY agent.py /agent.py
-RUN dos2unix /agent.py
 
-# 4. ΕΚΚΙΝΗΣΗ
-ENTRYPOINT ["python3", "-u", "/agent.py"]
+# Entrypoint (Direct Execution)
+ENTRYPOINT ["python3", "/agent.py"]

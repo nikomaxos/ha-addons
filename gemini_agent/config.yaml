@@ -1,10 +1,9 @@
 name: "Jarvis AI Professional"
-version: "21.1"
+version: "22.0"
 slug: "jarvis_ai_pro"
-description: "Enterprise-grade AI Agent (Native Docker Mode)"
+description: "Enterprise AI Agent (Native Mode - Debug Edition)"
 startup: application
 boot: auto
-# ΑΠΕΝΕΡΓΟΠΟΙΗΣΗ ΤΟΥ S6 INIT SYSTEM
 init: false
 arch:
   - aarch64
