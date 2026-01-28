@@ -1,5 +1,5 @@
 name: "Jarvis AI Professional"
-version: "20.4"
+version: "20.5"
 slug: "jarvis_ai_pro"
 description: "Enterprise-grade AI Agent with SQLite Memory & Native HA Integration"
 startup: application
