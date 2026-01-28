@@ -1,21 +1,20 @@
 name: "Jarvis AI Professional"
-version: "20.7"
+version: "21.0"
 slug: "jarvis_ai_pro"
-description: "Enterprise-grade AI Agent with SQLite Memory & Native HA Integration"
+description: "Enterprise-grade AI Agent (Native Docker Mode)"
 startup: application
 boot: auto
+# ΑΠΕΝΕΡΓΟΠΟΙΗΣΗ ΤΟΥ S6 INIT SYSTEM
+init: false
 arch:
   - aarch64
   - amd64
   - armv7
-# Δικαιώματα Διαχειριστή για Native API Access
 hassio_api: true
 hassio_role: admin
 options:
   gemini_api_key: ""
   prompt_entity: "input_text.gemini_prompt"
-  history_lookback_default: 24
 schema:
   gemini_api_key: str
   prompt_entity: str
-  history_lookback_default: int
