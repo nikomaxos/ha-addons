@@ -1,17 +1,16 @@
-FROM python:3.11-alpine
+ARG BUILD_FROM
+FROM $BUILD_FROM
 
-# Εγκατάσταση βασικών εργαλείων (bash, git)
-RUN apk add --no-cache bash git
+# Install Python and necessary libraries
+RUN apk add --no-cache python3 py3-pip
 
-# Εγκατάσταση βιβλιοθηκών Python
-RUN pip3 install requests google-generativeai pyyaml --break-system-packages
+# Install dependencies for Timezone & AI
+RUN pip install requests google-generativeai pytz python-dateutil
 
-# Αντιγραφή αρχείων
+# Copy data for add-on
 COPY run.sh /
 COPY agent.py /
 
-# Δικαιώματα εκτέλεσης
 RUN chmod a+x /run.sh
 
-# Εκκίνηση
 CMD [ "/run.sh" ]

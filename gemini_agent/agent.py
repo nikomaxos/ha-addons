@@ -2,266 +2,341 @@ import os
 import time
 import requests
 import json
+import sqlite3
 import google.generativeai as genai
 from datetime import datetime, timedelta
+import pytz
+from dateutil import parser
 
-# --- CONFIGURATION ---
+# --- CONSTANTS ---
 OPTIONS_PATH = "/data/options.json"
-MEMORY_FILE = "/config/gemini_memory.json"
-HASS_API = "http://supervisor/core/api"
-HASS_TOKEN = os.getenv("SUPERVISOR_TOKEN")
+DB_PATH = "/data/jarvis_memory.db" # Persistent Storage
+SUPERVISOR_API = "http://supervisor/core/api"
+INTERNAL_HA_API = "http://homeassistant:8123/api"
 
-try:
-    with open(OPTIONS_PATH, "r") as f:
-        options = json.load(f)
-    API_KEY = options.get("gemini_api_key")
-    PROMPT_ENTITY = options.get("prompt_entity", "input_text.gemini_prompt")
-    USER_TOKEN = options.get("ha_token", "")
-    
-    if USER_TOKEN:
-        print("🔑 Auth: User Token (Direct)")
-        HASS_TOKEN = USER_TOKEN
-        HASS_API = "http://homeassistant:8123/api"
-except Exception:
-    pass
+# --- CLASS: PERSISTENT MEMORY (SQLite) ---
+class PersistentMemory:
+    def __init__(self, db_path):
+        self.db_path = db_path
+        self._init_db()
 
-genai.configure(api_key=API_KEY)
-model = genai.GenerativeModel('gemini-2.5-pro')
+    def _init_db(self):
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        # Δημιουργία πίνακα αν δεν υπάρχει
+        c.execute('''CREATE TABLE IF NOT EXISTS conversation
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      timestamp TEXT,
+                      role TEXT,
+                      content TEXT)''')
+        conn.commit()
+        conn.close()
 
-# --- API HELPERS ---
-def call_ha_api(endpoint, method="GET", data=None):
-    headers = {
-        "Authorization": f"Bearer {HASS_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    base = HASS_API.rstrip("/")
-    path = endpoint.lstrip("/")
-    url = f"{base}/{path}"
-    
-    try:
-        if method == "GET":
-            response = requests.get(url, headers=headers, timeout=60)
-        else:
-            response = requests.post(url, headers=headers, json=data, timeout=60)
-        
-        if response.status_code < 300:
-            return response.json()
-        return None
-    except:
-        return None
+    def add_message(self, role, content):
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        ts = datetime.utcnow().isoformat()
+        c.execute("INSERT INTO conversation (timestamp, role, content) VALUES (?, ?, ?)", 
+                  (ts, role, content))
+        conn.commit()
+        conn.close()
 
-def get_ha_state(entity_id):
-    res = call_ha_api(f"states/{entity_id}")
-    if res:
-        return res.get("state", "")
-    return ""
+    def get_context(self, limit=10):
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute("SELECT role, content FROM conversation ORDER BY id DESC LIMIT ?", (limit,))
+        rows = c.fetchall()
+        conn.close()
+        # Επιστροφή με σωστή σειρά (χρονική)
+        return [{"role": r[0], "text": r[1]} for r in reversed(rows)]
 
-# --- MEMORY (FIXED SYNTAX) ---
-def load_memory():
-    if os.path.exists(MEMORY_FILE):
+# --- CLASS: HOME ASSISTANT CLIENT (Native API) ---
+class HomeAssistantClient:
+    def __init__(self):
+        self.token = os.getenv("SUPERVISOR_TOKEN")
+        self.headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Content-Type": "application/json"
+        }
+        self.timezone = pytz.utc # Default
+        self._sync_config()
+
+    def _sync_config(self):
+        """Τραβάει το configuration του HA για να βρει το Timezone του χρήστη."""
         try:
-            with open(MEMORY_FILE, "r") as f:
-                return json.load(f)
-        except:
+            print("⚙️ Syncing System Configuration...")
+            # Χτυπάμε το API για να βρούμε το timezone
+            res = requests.get(f"{SUPERVISOR_API}/config", headers=self.headers)
+            if res.status_code == 200:
+                data = res.json()
+                tz_str = data.get("time_zone", "UTC")
+                self.timezone = pytz.timezone(tz_str)
+                print(f"✅ System Timezone Detected: {self.timezone}")
+            else:
+                # Fallback στον Supervisor if core fails
+                print("⚠️ Config fetch via Supervisor failed, trying internal...")
+                res = requests.get(f"{INTERNAL_HA_API}/config", headers=self.headers)
+                if res.status_code == 200:
+                    tz_str = res.json().get("time_zone", "UTC")
+                    self.timezone = pytz.timezone(tz_str)
+                    print(f"✅ System Timezone Detected (Internal): {self.timezone}")
+        except Exception as e:
+            print(f"❌ Timezone Sync Error: {e}. Defaulting to UTC.")
+
+    def get_local_time(self):
+        return datetime.now(self.timezone)
+
+    def fetch_state(self, entity_id):
+        try:
+            res = requests.get(f"{SUPERVISOR_API}/states/{entity_id}", headers=self.headers, timeout=5)
+            return res.json().get("state", "") if res.status_code == 200 else ""
+        except: return ""
+
+    def fetch_all_states(self):
+        try:
+            res = requests.get(f"{SUPERVISOR_API}/states", headers=self.headers, timeout=10)
+            return res.json() if res.status_code == 200 else []
+        except: return []
+
+    def post_event(self, event_type, data):
+        try:
+            requests.post(f"{SUPERVISOR_API}/events/{event_type}", headers=self.headers, json=data)
+        except Exception as e:
+            print(f"❌ Failed to fire event: {e}")
+
+    def get_history(self, start_time_utc, entities):
+        """Τραβάει ιστορικό από το native API."""
+        try:
+            entity_filter = ",".join(entities)
+            # API format requires ISO format
+            start_iso = start_time_utc.isoformat()
+            
+            url = f"{SUPERVISOR_API}/history/period/{start_iso}?filter_entity_id={entity_filter}"
+            res = requests.get(url, headers=self.headers, timeout=60)
+            
+            if res.status_code == 200:
+                return res.json()
+            elif res.status_code == 401 or res.status_code == 404:
+                # Fallback to internal IP if supervisor proxy fails
+                url = f"{INTERNAL_HA_API}/history/period/{start_iso}?filter_entity_id={entity_filter}"
+                res = requests.get(url, headers=self.headers, timeout=60)
+                return res.json() if res.status_code == 200 else []
             return []
-    return []
+        except Exception as e:
+            print(f"❌ History Fetch Error: {e}")
+            return []
 
-def save_memory(user, agent):
-    mem = load_memory()
-    mem.append({"timestamp": datetime.now().isoformat(), "role": "user", "text": user})
-    mem.append({"timestamp": datetime.now().isoformat(), "role": "assistant", "text": agent})
-    
-    if len(mem) > 10:
-        mem = mem[-10:]
-        
-    try:
-        with open(MEMORY_FILE, "w") as f:
-            json.dump(mem, f, indent=2)
-    except:
-        pass
+# --- CLASS: JARVIS BRAIN (Logic) ---
+class JarvisBrain:
+    def __init__(self, ha_client, memory, model):
+        self.ha = ha_client
+        self.memory = memory
+        self.model = model
 
-def get_memory_string():
-    mem = load_memory()
-    if not mem:
-        return "No context."
-    output = []
-    for m in mem:
-        output.append(f"{m['role'].upper()}: {m['text']}")
-    return "\n".join(output)
-
-# --- HISTORY ENGINE ---
-def get_relevant_history(user_input):
-    try:
-        # 1. Determine Timeframe & Anchors
-        # Container Time (Local if timezone set correctly, else UTC)
-        # We use utcnow for calculations to match HA DB
-        utc_now = datetime.utcnow()
-        
-        lookback_hours = 24
+    def _detect_time_intent(self, user_input):
+        """
+        Αναλύει αν ο χρήστης ρωτάει για 'χθες', 'προχθές' και υπολογίζει το UTC offset.
+        Επιστρέφει (start_time_utc, duration_description).
+        """
+        now_local = self.ha.get_local_time()
         lower_input = user_input.lower()
         
-        if "εβδομάδα" in lower_input or "week" in lower_input:
-            lookback_hours = 168
-        elif "μήνα" in lower_input:
-            lookback_hours = 720
-        elif "μέρες" in lower_input:
-            lookback_hours = 72
-        elif "ώρα" in lower_input or "hour" in lower_input:
-            lookback_hours = 2 # Last 2 hours for precision
+        start_time = now_local - timedelta(hours=24) # Default fallback
+        mode = "recent"
+
+        if "χθες" in lower_input or "yesterday" in lower_input:
+            # Αν λέει "χθες την ίδια ώρα", πάμε 24 ώρες πίσω
+            start_time = now_local - timedelta(hours=24)
+            mode = "history_point"
+        elif "προχθές" in lower_input:
+            start_time = now_local - timedelta(hours=48)
+            mode = "history_point"
+        elif "ώρα" in lower_input and ("τελευταία" in lower_input or "last" in lower_input):
+            start_time = now_local - timedelta(hours=1)
+            mode = "history_range"
         
-        start_time_iso = (utc_now - timedelta(hours=lookback_hours)).isoformat()
+        # Convert to UTC for API
+        start_time_utc = start_time.astimezone(pytz.utc)
+        return start_time_utc, mode, start_time
+
+    def _identify_entities(self, user_input):
+        """Semantic search για να βρει ποια entities αφορά η ερώτηση."""
+        all_states = self.ha.fetch_all_states()
+        relevant = []
         
-        # 2. Category Detection
-        states = call_ha_api("states")
-        if not states:
-            return "Error: No states."
+        keywords = {
+            "θερμοκρασ": ["temperature", "climate", "temp"],
+            "θερμανσ": ["climate", "heating"],
+            "σαλον": ["salon", "living"],
+            "δωματι": ["room", "bed", "child"],
+            "φως": ["light"],
+            "καταναλωσ": ["energy", "power", "cost"]
+        }
+
+        # Βρες λέξεις κλειδιά
+        found_types = []
+        user_filter_words = []
+        for k, v in keywords.items():
+            if k in user_input.lower():
+                found_types.extend(v)
         
-        target_entities = []
-        is_temp = any(w in lower_input for w in ["θερμοκρασ", "temp", "klimat", "κλιματ", "heating", "θερμανσ", "heat"])
-        is_light = any(w in lower_input for w in ["light", "φως", "φώτα", "διακοπτ", "switch"])
-        
-        for s in states:
+        # Λέξεις για φιλτράρισμα ονόματος (π.χ. "σαλόνι")
+        words = user_input.lower().split()
+        user_filter_words = [w for w in words if len(w) > 3]
+
+        for s in all_states:
             eid = s['entity_id'].lower()
             attrs = s.get('attributes', {})
+            dev_class = str(attrs.get('device_class', ''))
+            friendly = str(attrs.get('friendly_name', '')).lower()
             
-            # BLACKLIST: Ignore summary stats for short-term history
-            if lookback_hours < 24 and any(bad in eid for bad in ["daily", "weekly", "monthly", "cost", "energy", "power"]):
-                continue
+            # Match Logic
+            is_match = False
+            
+            # Αν βρήκαμε τύπο (π.χ. temperature)
+            if found_types:
+                if any(t in dev_class or t in eid for t in found_types) or eid.startswith("climate."):
+                    is_match = True
+            
+            # Αν βρήκαμε λέξη τοποθεσίας (π.χ. σαλόνι)
+            name_match = any(w in eid or w in friendly for w in user_filter_words)
+            
+            # Συνδυασμός: Αν ζήτησε θερμοκρασία σαλονιού, πρέπει να ταιριάζει και ο τύπος και το όνομα
+            if found_types and user_filter_words:
+                 if is_match and name_match: relevant.append(s['entity_id'])
+            elif found_types: # Ζήτησε γενικά θερμοκρασίες
+                 if is_match: relevant.append(s['entity_id'])
+            elif user_filter_words: # Ζήτησε "τι κάνει το σαλόνι"
+                 if name_match: relevant.append(s['entity_id'])
 
-            match = False
-            if is_temp:
-                if eid.startswith("climate."): match = True
-                elif "temperature" in str(attrs.get('device_class', '')): match = True
-            
-            if is_light:
-                if eid.startswith("light.") or eid.startswith("switch."): match = True
-            
-            # Fallback text match
-            if not match:
-                words = [w for w in lower_input.split() if len(w)>3]
-                if any(w in eid for w in words): match = True
-            
-            if match and "update" not in eid:
-                target_entities.append(s['entity_id'])
+        return relevant[:15] # Limit
 
-        if not target_entities:
-            return "No relevant sensors."
+    def process(self, user_input):
+        # 1. Καταγραφή στη μνήμη
+        self.memory.add_message("user", user_input)
         
-        final_list = target_entities[:20]
-        entity_filter = ",".join(final_list)
-        endpoint = f"history/period/{start_time_iso}?filter_entity_id={entity_filter}"
+        # 2. Ανάλυση Χρόνου & Entities
+        start_utc, mode, start_local = self._detect_time_intent(user_input)
+        entities = self._identify_entities(user_input)
         
-        history_data = call_ha_api(endpoint)
-        if not history_data:
-            return "No history data."
+        history_text = "No relevant history data found."
         
-        summary = []
-        for entity_history in history_data:
-            if not entity_history:
-                continue
-                
-            eid = entity_history[0]['entity_id']
-            readings = []
+        if entities:
+            print(f"🔎 Fetching History for {len(entities)} entities from {start_local}...")
+            raw_history = self.ha.get_history(start_utc, entities)
             
-            # Sampling logic
-            step = 1
-            if lookback_hours > 24:
-                step = 10
-            
-            for entry in entity_history[::step]: 
-                state = entry.get('state')
-                attrs = entry.get('attributes', {})
+            # 3. Parsing History (Smart Filter)
+            parsed_lines = []
+            for item in raw_history:
+                if not item: continue
+                eid = item[0]['entity_id']
                 
-                # Enrich Climate Data
-                val = state
-                if eid.startswith("climate."):
-                    action = attrs.get('hvac_action', 'unknown')
-                    curr = attrs.get('current_temperature', '')
-                    val = f"{state} (Active:{action}, Temp:{curr})"
+                # Αν ψάχνουμε "την ίδια ώρα χθες", θέλουμε ένα μικρό παράθυρο γύρω από την ώρα-στόχο
+                target_window_start = start_utc
+                target_window_end = start_utc + timedelta(minutes=60) # Δίνουμε 1 ώρα παράθυρο
                 
-                if state not in ['unknown', 'unavailable']:
+                for entry in item:
                     try:
                         ts_str = entry['last_changed']
-                        readings.append(f"[{ts_str}={val}]")
-                    except:
-                        pass
+                        ts_dt = parser.isoparse(ts_str) # Aware datetime
+                        
+                        # Αν είναι μέσα στο παράθυρο που θέλουμε
+                        if mode == "history_point":
+                            # Ελέγχουμε αν η εγγραφή είναι κοντά στην ώρα στόχο ( π.χ. +/- 30 λεπτά)
+                            diff = abs((ts_dt - target_window_start).total_seconds())
+                            if diff < 3600: # 1 hour proximity
+                                val = entry['state']
+                                # Convert timestamp back to User Time for the AI
+                                ts_user = ts_dt.astimezone(self.ha.timezone).strftime("%H:%M")
+                                parsed_lines.append(f"{eid} at {ts_user}: {val}")
+                        else:
+                            # Range mode (π.χ. τελευταία ώρα), τα παίρνουμε όλα
+                            val = entry['state']
+                            ts_user = ts_dt.astimezone(self.ha.timezone).strftime("%H:%M")
+                            parsed_lines.append(f"[{ts_user}] {eid}={val}")
+                    except: pass
             
-            if readings:
-                # Last 50 readings
-                data_str = ", ".join(readings[-50:])
-                summary.append(f"ENTITY: {eid}\nDATA: {data_str}\n")
-                
-        return "\n".join(summary)
+            if parsed_lines:
+                history_text = "\n".join(parsed_lines[-50:]) # Keep it concise
 
-    except Exception as e:
-        return f"History Error: {e}"
+        # 4. Current State (Context)
+        current_states = ""
+        # Φέρνουμε μόνο τα entities που βρήκαμε ότι σχετίζονται
+        for eid in entities:
+            state = self.ha.fetch_state(eid)
+            current_states += f"{eid}: {state}\n"
 
-# --- MAIN LOGIC ---
-def analyze_and_reply(user_input):
-    try:
-        # Time Anchors
-        now_local = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        now_utc = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-        
-        memory = get_memory_string()
-        history_context = get_relevant_history(user_input)
-        
-        current_status = ""
-        states = call_ha_api("states")
-        if states:
-            for s in states:
-                if s['state'] not in ['unknown', 'unavailable']:
-                    eid = s['entity_id']
-                    if any(x in eid for x in ["light", "switch", "climate"]):
-                         current_status += f"{eid}: {s['state']}\n"
+        # 5. Build Prompt
+        now_local_str = self.ha.get_local_time().strftime("%Y-%m-%d %H:%M:%S")
+        memory_str = "\n".join([f"{m['role']}: {m['text']}" for m in self.memory.get_context()])
         
         prompt = (
-            f"You are Jarvis. Smart Home Analyst.\n"
-            f"--- CRITICAL TIME CONTEXT ---\n"
-            f"Current Local Time: {now_local}\n"
-            f"Current UTC Time: {now_utc}\n"
-            f"(Note: HA Logs below are in UTC. Add +2h/+3h for Greece).\n\n"
-            f"--- LOGS (UTC) ---\n{history_context}\n"
-            f"--- CURRENT STATES ---\n{current_status}\n"
-            f"--- MEMORY ---\n{memory}\n"
-            f"--- REQUEST ---\n{user_input}\n\n"
-            f"RULES:\n"
-            f"1. IGNORE data older than the requested timeframe. Compare Log timestamps with 'Current UTC Time'.\n"
-            f"2. For 'Last Hour': If the logs show the last 'heating' event was 4 hours ago, then the answer is '0 minutes'.\n"
-            f"3. Ignore sensors like 'daily_heating_hours' for short-term queries.\n"
-            f"4. Reply in Greek."
+            f"Current Time (User TZ): {now_local_str}\n"
+            f"User Location Timezone: {self.ha.timezone}\n"
+            f"--- CONVERSATION MEMORY ---\n{memory_str}\n"
+            f"--- HISTORICAL DATA (Relative to Request) ---\n{history_text}\n"
+            f"--- CURRENT LIVE VALUES ---\n{current_states}\n"
+            f"--- USER QUESTION ---\n{user_input}\n\n"
+            f"INSTRUCTIONS:\n"
+            f"1. You are a Professional Home Assistant Analyst.\n"
+            f"2. Look at 'HISTORICAL DATA'. If user asks 'Yesterday same time', look for timestamps in data matching yesterday's date/time.\n"
+            f"3. Do NOT generalize. Use the specific values found.\n"
+            f"4. If data shows temperature 20.5 at 10:00 yesterday, say 'Yesterday at 10:00 it was 20.5°C'.\n"
+            f"5. Reply in Greek."
         )
-        
-        response = model.generate_content(prompt)
-        text = response.text.replace("*", "").replace("#", "")
-        return text
-        
-    except Exception as e:
-        return f"Analysis Error: {e}"
 
-# --- RUNTIME ---
-print("🚀 Agent v18.1 (Syntax Clean) Starting...")
-last_command = get_ha_state(PROMPT_ENTITY)
+        try:
+            response = self.model.generate_content(prompt)
+            reply_text = response.text.replace("*", "")
+            
+            # Save Reply
+            self.memory.add_message("assistant", reply_text)
+            return reply_text
+        except Exception as e:
+            return f"Error generating response: {e}"
 
-while True:
-    try:
-        current_command = get_ha_state(PROMPT_ENTITY)
-        
-        if current_command and current_command != last_command and current_command not in ["", "unknown"]:
-            print(f"🗣️ NEW: {current_command}")
-            last_command = current_command
-            
-            try:
-                reply = analyze_and_reply(current_command)
-                save_memory(current_command, reply)
-            except Exception as final_e:
-                reply = f"Error: {final_e}"
-            
-            print(f"✅ Reply: {reply[:50]}...")
-            call_ha_api("events/jarvis_response", "POST", {"text": reply})
-            
-    except Exception as e:
-        print(f"Loop Error: {e}")
-        time.sleep(5)
+# --- MAIN EXECUTION ---
+def main():
+    print("🚀 Starting Jarvis AI Professional (v20.0)...")
     
-    time.sleep(1)
+    # Load Config
+    try:
+        with open(OPTIONS_PATH, "r") as f: options = json.load(f)
+        api_key = options.get("gemini_api_key")
+        prompt_entity = options.get("prompt_entity", "input_text.gemini_prompt")
+    except:
+        print("❌ Critical: Could not load config.")
+        exit(1)
+
+    # Initialize Components
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel('gemini-2.5-pro')
+    
+    mem = PersistentMemory(DB_PATH)
+    ha = HomeAssistantClient()
+    brain = JarvisBrain(ha, mem, model)
+
+    print(f"👂 Listening on {prompt_entity}")
+    last_command = ha.fetch_state(prompt_entity)
+
+    while True:
+        try:
+            current_command = ha.fetch_state(prompt_entity)
+            if current_command and current_command != last_command and current_command not in ["", "unknown"]:
+                print(f"🗣️ Processing: {current_command}")
+                last_command = current_command
+                
+                # Processing
+                reply = brain.process(current_command)
+                
+                print(f"✅ Reply: {reply[:50]}...")
+                ha.post_event("jarvis_response", {"text": reply})
+                
+        except Exception as e:
+            print(f"🔥 Loop Error: {e}")
+            time.sleep(5)
+        
+        time.sleep(1)
+
+if __name__ == "__main__":
+    main()
