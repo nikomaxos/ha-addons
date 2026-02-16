@@ -38,6 +38,8 @@ class HA:
             else:
                 self.tz = pytz.utc
                 log(f"⚠️ TZ Sync Failed: {res.status_code}, using UTC", "WARN")
+                log(f"   -> Response: {res.text}", "WARN")
+                log(f"   -> Token present: {bool(self.token)}", "WARN")
         except Exception as e:
             self.tz = pytz.utc
             log(f"⚠️ TZ Sync Error: {e}, using UTC", "WARN")

@@ -11,6 +11,7 @@ arch:
   - armv7
 hassio_api: true
 hassio_role: admin
+homeassistant: 0.1.0 # Optional constraint
 options:
   gemini_api_key: ""
   prompt_entity: "input_text.gemini_prompt"
