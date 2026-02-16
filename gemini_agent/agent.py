@@ -11,6 +11,7 @@ from google.genai import types
 # --- CONFIG ---
 OPTIONS_PATH = "/data/options.json"
 SUPERVISOR_API = "http://supervisor/core/api"
+INTERNAL_HA_API = "http://homeassistant:8123/api"
 CONFIG_PATH = "/config"
 
 # --- LOGGING ---
