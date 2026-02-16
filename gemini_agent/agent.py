@@ -20,30 +20,34 @@ def log(msg, level="INFO"):
 
 # --- HA CLIENT ---
 class HA:
-    def __init__(self):
-        self.token = os.getenv("SUPERVISOR_TOKEN")
+    def __init__(self, override_token=None):
+        self.token = override_token if override_token else os.getenv("SUPERVISOR_TOKEN")
         self.headers = {
             "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json"
         }
-        self.base_url = SUPERVISOR_API
-        self.base_url = SUPERVISOR_API
+        
+        # If using override token, likely need to use INTERNAL_HA_API instead of Supervisor proxy
+        # But for add-ons, Supervisor proxy usually works if plugin has permission over core.
+        # Let's try direct API if override is present.
+        if override_token:
+            self.base_url = INTERNAL_HA_API
+            log("🔑 Using Long-Lived Access Token (Direct API Mode)")
+        else:
+            self.base_url = SUPERVISOR_API
+            log("🔐 Using Supervisor Token (Add-on Mode)")
+
         self._debug_connectivity()
         self._sync_tz()
 
     def _debug_connectivity(self):
-        log("🕵️ DIAGNOSTIC: Testing Supervisor API access...")
+        log(f"🕵️ DIAGNOSTIC: Testing API access ({self.base_url})...")
         try:
-            # Check Supervisor Info (basic access)
-            url = "http://supervisor/supervisor/info"
-            res = requests.get(url, headers=self.headers, timeout=5)
-            log(f"   -> Supervisor Info: {res.status_code}")
-            if not res.ok: 
-                log(f"   -> Body: {res.text}")
-            
-            # Check Core API (admin access)
+             # Check Core API (admin access)
             res = requests.get(f"{self.base_url}/config", headers=self.headers, timeout=5)
             log(f"   -> Core API (Config): {res.status_code}")
+            if not res.ok: 
+                 log(f"   -> Body: {res.text}")
         except Exception as e:
             log(f"   -> Network Error: {e}")
 
@@ -313,6 +317,7 @@ if __name__ == "__main__":
         with open(OPTIONS_PATH) as f: opts = json.load(f)
         input_ent = opts.get("prompt_entity", "input_text.gemini_prompt")
         api_key = opts.get("gemini_api_key")
+        ha_token = opts.get("ha_token")
     except:
         log("❌ Config Error: Could not read options.json", "ERR"); sys.exit(1)
 
@@ -321,7 +326,7 @@ if __name__ == "__main__":
         # Loop mainly to keep container alive and warn user
         while True: time.sleep(60)
 
-    ha = HA()
+    ha = HA(override_token=ha_token)
     agent = GeminiAgent(api_key, ha)
     
     log(f"👀 Watching: {input_ent}")
