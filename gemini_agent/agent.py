@@ -27,7 +27,25 @@ class HA:
             "Content-Type": "application/json"
         }
         self.base_url = SUPERVISOR_API
+        self.base_url = SUPERVISOR_API
+        self._debug_connectivity()
         self._sync_tz()
+
+    def _debug_connectivity(self):
+        log("🕵️ DIAGNOSTIC: Testing Supervisor API access...")
+        try:
+            # Check Supervisor Info (basic access)
+            url = "http://supervisor/supervisor/info"
+            res = requests.get(url, headers=self.headers, timeout=5)
+            log(f"   -> Supervisor Info: {res.status_code}")
+            if not res.ok: 
+                log(f"   -> Body: {res.text}")
+            
+            # Check Core API (admin access)
+            res = requests.get(f"{self.base_url}/config", headers=self.headers, timeout=5)
+            log(f"   -> Core API (Config): {res.status_code}")
+        except Exception as e:
+            log(f"   -> Network Error: {e}")
 
     def _sync_tz(self):
         try:
