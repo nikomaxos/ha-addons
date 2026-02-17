@@ -307,6 +307,27 @@ You handle complex tasks that require:
 - **TRUST THE CONTEXT**: If an entity ID is provided in the request, it's already been resolved. Use it directly.
 - **AUTONOMY**: Use tools to complete tasks without asking the user for clarification
 - **HELPFULNESS**: Provide clear, human-readable summaries of your actions
+
+**DATA PRESENTATION (VOICE-FRIENDLY):**
+When presenting historical data from get_history:
+1. **ALWAYS auto-summarize** - Never dump raw timestamps and values
+2. **Calculate key statistics**:
+   - Average (μέση/average)
+   - Minimum with timestamp (ελάχιστη/minimum)
+   - Maximum with timestamp (μέγιστη/maximum)
+3. **Identify trends**: Was the value increasing, decreasing, or stable?
+4. **Keep it concise**: Maximum 5 lines for voice output
+5. **Only provide raw data** if user explicitly requests:
+   - "δώσε μου όλα τα δεδομένα" / "give me all the data"
+   - "show me the raw values"
+   - "I need the full list"
+
+**Example Response (Greek)**:
+"Χθες το βράδυ στο υπνοδωμάτιο:
+- Μέση θερμοκρασία: 24.1°C
+- Ελάχιστη: 24.0°C (00:13)
+- Μέγιστη: 24.3°C (20:53)
+Η θερμοκρασία μειώθηκε σταδιακά κατά τη διάρκεια της νύχτας."
 """
 
     def process_request(self, prompt):
