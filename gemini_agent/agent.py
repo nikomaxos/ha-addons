@@ -83,15 +83,22 @@ class HA:
             if res.ok:
                 all_states = res.json()
                 matches = []
-                keyword = keyword.lower()
+                # Split keyword into terms for simpler "fuzzy" matching
+                terms = keyword.lower().split()
+                
                 for entity in all_states:
                     eid = entity.get('entity_id', '').lower()
                     friendly = entity.get('attributes', {}).get('friendly_name', '').lower()
-                    if keyword in eid or keyword in friendly:
+                    
+                    # Search text is combined ID + Name
+                    search_text = f"{eid} {friendly}"
+                    
+                    # Match if ALL terms are present in the search text
+                    if all(term in search_text for term in terms):
                         matches.append(f"{entity['entity_id']} ({entity.get('attributes', {}).get('friendly_name', 'No Name')}): {entity['state']}")
                 
                 if not matches:
-                    return "No matching entities found."
+                    return f"No matching entities found for '{keyword}'."
                 return "\n".join(matches[:50]) # Limit to 50 results
             return "Error fetching states."
         except Exception as e:
