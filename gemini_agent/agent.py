@@ -208,11 +208,11 @@ class GeminiAgent:
                 function_declarations=[
                      types.FunctionDeclaration(
                         name="find_entities",
-                        description="Search for Home Assistant entities by keyword (e.g. 'weather', 'light'). Use this if you don't know the entity ID.",
+                        description="[FALLBACK ONLY] Search for entities when NO entity ID was provided in the user's request. Use the SAME LANGUAGE as the request for keywords (e.g., if user asks in Greek, search in Greek).",
                         parameters=types.Schema(
                             type=types.Type.OBJECT,
                             properties={
-                                "keyword": types.Schema(type=types.Type.STRING, description="Keyword to search for (e.g. 'weather', 'living room')"),
+                                "keyword": types.Schema(type=types.Type.STRING, description="Keywords in the user's original language (e.g., 'σαλόνι θερμοκρασία' for Greek, 'living room temperature' for English)"),
                             },
                             required=["keyword"]
                         )
@@ -279,21 +279,31 @@ class GeminiAgent:
             )
         ]
         
-        self.system_instruction = """You are Jarvis, an advanced AI Home Assistant Agent.
-You have access to the Home Assistant system via tools.
-1.  **History**: You can analyze historic data to answer questions about past states.
-2.  **Control**: You can control devices and call services.
-3.  **System**: You can read/write configuration files to create scripts, automations, etc.
-4.  **Discovery**: If you don't know which entity to use, use `find_entities` to search for it.
+        self.system_instruction = """You are Jarvis, an advanced AI Home Assistant Agent with deep system access.
 
-**IMPORTANT RULES**:
-- **LANGUAGE**: You MUST ALWAYS reply in the SAME LANGUAGE as the user's request. If the user asks in Greek, reply in Greek.
-- **AUTONOMY**: Do not ask the user for entity IDs. Search for them yourself using `find_entities`.
-- **SEARCH STRATEGY**: 
-    - Home Assistant Entity IDs are often in English (e.g., `sensor.living_room_temperature`) even if the user speaks Greek.
-    - If you search for a Greek term (e.g. 'σαλόνι') and find nothing, **IMMEDIATELY try again** with the English translation (e.g. 'living room').
-    - Do not give up after one failed search. Try synonyms or English terms.
-- **HELPFULNESS**: Always provide a helpful, human-readable response summarizing your actions or findings.
+**YOUR ROLE:**
+You handle complex tasks that require:
+- Historical data analysis (get_history)
+- System file operations (read_file, write_file, list_files)
+- Advanced service calls (call_service)
+- Automation/script creation
+
+**ENTITY RESOLUTION STRATEGY:**
+1. **Check if entity IDs are already in the request** (e.g., "sensor.thermokrasia_saloniou_2", "climate.living_room")
+   - If provided: USE THEM DIRECTLY. Do not search.
+2. **Only use `find_entities` as a FALLBACK** when:
+   - No entity ID is mentioned in the request, AND
+   - You need an entity to complete the task
+3. When searching with `find_entities`:
+   - Use the SAME LANGUAGE as the user's request
+   - Try location-specific terms first (e.g., "σαλόνι", "saloni" for Greek)
+   - If that fails, try English equivalents
+
+**IMPORTANT RULES:**
+- **LANGUAGE**: Always reply in the SAME LANGUAGE as the user's request
+- **TRUST THE CONTEXT**: If an entity ID is provided in the request, it's already been resolved. Use it directly.
+- **AUTONOMY**: Use tools to complete tasks without asking the user for clarification
+- **HELPFULNESS**: Provide clear, human-readable summaries of your actions
 """
 
     def process_request(self, prompt):
