@@ -365,27 +365,33 @@ if __name__ == "__main__":
     agent = GeminiAgent(api_key, ha)
     
     log(f"👀 Watching: {input_ent}")
-    last_val = "INITIAL_STARTUP"
 
     while True:
         try:
             curr = ha.get_state(input_ent)
             
-            # Simple Trigger Logic: Change in input_text (excluding empty)
-            if curr not in ["NOT_FOUND", "TIMEOUT", "unknown", "", last_val]:
+            # Trigger Logic: Any non-empty text starts the flow.
+            # We ignore "NOT_FOUND", "TIMEOUT", "unknown", "ERROR" and empty string "".
+            if curr not in ["NOT_FOUND", "TIMEOUT", "unknown", "ERROR", ""]:
                 log(f"⚡ Request: '{curr}'")
-                last_val = curr
                 
-                # Process
+                # 1. Process
                 response_text = agent.process_request(curr)
                 
+                # 2. Respond
                 log(f"🗣️ Response: {response_text}")
                 ha.fire_event("jarvis_response", {"text": response_text, "original_request": curr})
                 
-                # Optional: Reset input_text to avoid loop or duplicate trigger? 
-                # Ideally user clears it or we do. For now, we update last_val so we don't re-trigger on same text.
+                # 3. RESET INPUT
+                # We clear the input text so we are ready for the next request.
+                # This prevents looping on the same old request and allows re-triggering.
+                log(f"🧹 Clearing {input_ent}...")
+                ha.call_service("input_text", "set_value", {"entity_id": input_ent, "value": ""})
+                
+                # Wait a bit to ensure HA processes the clear before we poll again
+                time.sleep(2)
 
         except Exception as e:
             log(f"🔥 Loop Error: {e}", "ERR")
         
-        time.sleep(2)
+        time.sleep(1)
