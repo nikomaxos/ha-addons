@@ -365,6 +365,10 @@ if __name__ == "__main__":
     agent = GeminiAgent(api_key, ha)
     
     log(f"👀 Watching: {input_ent}")
+    
+    # startup diagnostic
+    initial_state = ha.get_state(input_ent)
+    log(f"🔍 Startup Check: {input_ent} = '{initial_state}'")
 
     while True:
         try:
