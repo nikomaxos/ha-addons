@@ -99,16 +99,21 @@ class HA:
                 for entity in all_states:
                     eid = normalize(entity.get('entity_id', ''))
                     friendly = normalize(entity.get('attributes', {}).get('friendly_name', ''))
+                    domain = eid.split('.')[0]
+                    device_class = normalize(entity.get('attributes', {}).get('device_class', ''))
                     
-                    # Search text is combined ID + Name
-                    search_text = f"{eid} {friendly}"
+                    # Search text includes ID, Name, Domain, and Device Class
+                    # We also add 'thermostat' alias for climate domain
+                    aliases = "thermostat temperature" if domain == "climate" else ""
                     
-                    # Match if ALL terms are present in the search text
+                    search_text = f"{eid} {friendly} {domain} {device_class} {aliases}"
+                    
+                    # Match if ALL terms are present
                     if all(term in search_text for term in terms):
                          matches.append(f"{entity['entity_id']} ({entity.get('attributes', {}).get('friendly_name', 'No Name')}): {entity['state']}")
                 
                 if not matches:
-                    return f"No matching entities found for '{keyword}'. Try searching with English terms (e.g. 'living room')."
+                    return f"No matching entities found for '{keyword}'. Strategy hint: Search for just the location (e.g. 'living room') without the device type."
                 return "\n".join(matches[:50]) # Limit to 50 results
             return "Error fetching states."
         except Exception as e:
