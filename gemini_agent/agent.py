@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import pytz
 from google import genai
 from google.genai import types
+import unicodedata
 
 # --- CONFIG ---
 OPTIONS_PATH = "/data/options.json"
@@ -18,6 +19,11 @@ CONFIG_PATH = "/config"
 def log(msg, level="INFO"):
     ts = datetime.now().strftime("%H:%M:%S")
     print(f"[{ts}] [{level}] {msg}", flush=True)
+
+# --- HELPER ---
+def remove_accents(input_str):
+    nfkd_form = unicodedata.normalize('NFKD', input_str)
+    return "".join([c for c in nfkd_form if not unicodedata.combining(c)])
 
 # --- HA CLIENT ---
 class HA:
@@ -75,17 +81,6 @@ class HA:
             log(f"Error getting state: {e}", "ERR")
             return "ERROR"
             
-# --- HELPER ---
-def remove_accents(input_str):
-    import unicodedata
-    nfkd_form = unicodedata.normalize('NFKD', input_str)
-    return "".join([c for c in nfkd_form if not unicodedata.combining(c)])
-
-# --- HA CLIENT ---
-class HA:
-# ... (existing init) ...
-
-# ... (inside find_entities)
     def find_entities(self, keyword):
         """Search for entities matching a keyword."""
         try:
@@ -94,10 +89,10 @@ class HA:
             if res.ok:
                 all_states = res.json()
                 matches = []
+                
                 # Normalize keyword: lowercase + remove accents
-                import unicodedata
                 def normalize(s):
-                    return "".join(c for c in unicodedata.normalize('NFKD', s.lower()) if not unicodedata.combining(c))
+                    return remove_accents(s.lower())
 
                 terms = normalize(keyword).split()
                 
@@ -118,24 +113,6 @@ class HA:
             return "Error fetching states."
         except Exception as e:
             return f"Exception finding entities: {e}"
-
-# ... (GeminiAgent class) ...
-        self.system_instruction = """You are Jarvis, an advanced AI Home Assistant Agent.
-You have access to the Home Assistant system via tools.
-1.  **History**: You can analyze historic data to answer questions about past states.
-2.  **Control**: You can control devices and call services.
-3.  **System**: You can read/write configuration files to create scripts, automations, etc.
-4.  **Discovery**: If you don't know which entity to use, use `find_entities` to search for it.
-
-**IMPORTANT RULES**:
-- **LANGUAGE**: You MUST ALWAYS reply in the SAME LANGUAGE as the user's request. If the user asks in Greek, reply in Greek.
-- **AUTONOMY**: Do not ask the user for entity IDs. Search for them yourself using `find_entities`.
-- **SEARCH STRATEGY**: 
-    - Home Assistant Entity IDs are often in English (e.g., `sensor.living_room_temperature`) even if the user speaks Greek.
-    - If you search for a Greek term (e.g. 'σαλόνι') and find nothing, **IMMEDIATELY try again** with the English translation (e.g. 'living room').
-    - Do not give up after one failed search. Try synonyms or English terms.
-- **HELPFULNESS**: Always provide a helpful, human-readable response summarizing your actions or findings.
-"""
 
     def get_history(self, entity_id, days_back=1):
         """Get history for an entity."""
@@ -306,7 +283,11 @@ You have access to the Home Assistant system via tools.
 
 **IMPORTANT RULES**:
 - **LANGUAGE**: You MUST ALWAYS reply in the SAME LANGUAGE as the user's request. If the user asks in Greek, reply in Greek.
-- **AUTONOMY**: Do not ask the user for entity IDs. Search for them yourself using `find_entities` (e.g., search for 'weather' if asked about weather).
+- **AUTONOMY**: Do not ask the user for entity IDs. Search for them yourself using `find_entities`.
+- **SEARCH STRATEGY**: 
+    - Home Assistant Entity IDs are often in English (e.g., `sensor.living_room_temperature`) even if the user speaks Greek.
+    - If you search for a Greek term (e.g. 'σαλόνι') and find nothing, **IMMEDIATELY try again** with the English translation (e.g. 'living room').
+    - Do not give up after one failed search. Try synonyms or English terms.
 - **HELPFULNESS**: Always provide a helpful, human-readable response summarizing your actions or findings.
 """
 
