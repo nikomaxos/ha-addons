@@ -75,6 +75,17 @@ class HA:
             log(f"Error getting state: {e}", "ERR")
             return "ERROR"
             
+# --- HELPER ---
+def remove_accents(input_str):
+    import unicodedata
+    nfkd_form = unicodedata.normalize('NFKD', input_str)
+    return "".join([c for c in nfkd_form if not unicodedata.combining(c)])
+
+# --- HA CLIENT ---
+class HA:
+# ... (existing init) ...
+
+# ... (inside find_entities)
     def find_entities(self, keyword):
         """Search for entities matching a keyword."""
         try:
@@ -83,26 +94,48 @@ class HA:
             if res.ok:
                 all_states = res.json()
                 matches = []
-                # Split keyword into terms for simpler "fuzzy" matching
-                terms = keyword.lower().split()
+                # Normalize keyword: lowercase + remove accents
+                import unicodedata
+                def normalize(s):
+                    return "".join(c for c in unicodedata.normalize('NFKD', s.lower()) if not unicodedata.combining(c))
+
+                terms = normalize(keyword).split()
                 
                 for entity in all_states:
-                    eid = entity.get('entity_id', '').lower()
-                    friendly = entity.get('attributes', {}).get('friendly_name', '').lower()
+                    eid = normalize(entity.get('entity_id', ''))
+                    friendly = normalize(entity.get('attributes', {}).get('friendly_name', ''))
                     
                     # Search text is combined ID + Name
                     search_text = f"{eid} {friendly}"
                     
                     # Match if ALL terms are present in the search text
                     if all(term in search_text for term in terms):
-                        matches.append(f"{entity['entity_id']} ({entity.get('attributes', {}).get('friendly_name', 'No Name')}): {entity['state']}")
+                         matches.append(f"{entity['entity_id']} ({entity.get('attributes', {}).get('friendly_name', 'No Name')}): {entity['state']}")
                 
                 if not matches:
-                    return f"No matching entities found for '{keyword}'."
+                    return f"No matching entities found for '{keyword}'. Try searching with English terms (e.g. 'living room')."
                 return "\n".join(matches[:50]) # Limit to 50 results
             return "Error fetching states."
         except Exception as e:
             return f"Exception finding entities: {e}"
+
+# ... (GeminiAgent class) ...
+        self.system_instruction = """You are Jarvis, an advanced AI Home Assistant Agent.
+You have access to the Home Assistant system via tools.
+1.  **History**: You can analyze historic data to answer questions about past states.
+2.  **Control**: You can control devices and call services.
+3.  **System**: You can read/write configuration files to create scripts, automations, etc.
+4.  **Discovery**: If you don't know which entity to use, use `find_entities` to search for it.
+
+**IMPORTANT RULES**:
+- **LANGUAGE**: You MUST ALWAYS reply in the SAME LANGUAGE as the user's request. If the user asks in Greek, reply in Greek.
+- **AUTONOMY**: Do not ask the user for entity IDs. Search for them yourself using `find_entities`.
+- **SEARCH STRATEGY**: 
+    - Home Assistant Entity IDs are often in English (e.g., `sensor.living_room_temperature`) even if the user speaks Greek.
+    - If you search for a Greek term (e.g. 'σαλόνι') and find nothing, **IMMEDIATELY try again** with the English translation (e.g. 'living room').
+    - Do not give up after one failed search. Try synonyms or English terms.
+- **HELPFULNESS**: Always provide a helpful, human-readable response summarizing your actions or findings.
+"""
 
     def get_history(self, entity_id, days_back=1):
         """Get history for an entity."""
