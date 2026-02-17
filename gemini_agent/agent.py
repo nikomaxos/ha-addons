@@ -28,9 +28,6 @@ class HA:
             "Content-Type": "application/json"
         }
         
-        # If using override token, likely need to use INTERNAL_HA_API instead of Supervisor proxy
-        # But for add-ons, Supervisor proxy usually works if plugin has permission over core.
-        # Let's try direct API if override is present.
         if override_token:
             self.base_url = INTERNAL_HA_API
             log("🔑 Using Long-Lived Access Token (Direct API Mode)")
@@ -77,6 +74,28 @@ class HA:
         except Exception as e:
             log(f"Error getting state: {e}", "ERR")
             return "ERROR"
+            
+    def find_entities(self, keyword):
+        """Search for entities matching a keyword."""
+        try:
+            url = f"{self.base_url}/states"
+            res = requests.get(url, headers=self.headers, timeout=5)
+            if res.ok:
+                all_states = res.json()
+                matches = []
+                keyword = keyword.lower()
+                for entity in all_states:
+                    eid = entity.get('entity_id', '').lower()
+                    friendly = entity.get('attributes', {}).get('friendly_name', '').lower()
+                    if keyword in eid or keyword in friendly:
+                        matches.append(f"{entity['entity_id']} ({entity.get('attributes', {}).get('friendly_name', 'No Name')}): {entity['state']}")
+                
+                if not matches:
+                    return "No matching entities found."
+                return "\n".join(matches[:50]) # Limit to 50 results
+            return "Error fetching states."
+        except Exception as e:
+            return f"Exception finding entities: {e}"
 
     def get_history(self, entity_id, days_back=1):
         """Get history for an entity."""
@@ -162,9 +181,20 @@ class GeminiAgent:
 
         # Define Tools
         self.tools = [
-            # History Tool
+            # Discovery Tool
             types.Tool(
                 function_declarations=[
+                     types.FunctionDeclaration(
+                        name="find_entities",
+                        description="Search for Home Assistant entities by keyword (e.g. 'weather', 'light'). Use this if you don't know the entity ID.",
+                        parameters=types.Schema(
+                            type=types.Type.OBJECT,
+                            properties={
+                                "keyword": types.Schema(type=types.Type.STRING, description="Keyword to search for (e.g. 'weather', 'living room')"),
+                            },
+                            required=["keyword"]
+                        )
+                    ),
                     types.FunctionDeclaration(
                         name="get_history",
                         description="Get the state history of a Home Assistant entity for analysis.",
@@ -232,10 +262,12 @@ You have access to the Home Assistant system via tools.
 1.  **History**: You can analyze historic data to answer questions about past states.
 2.  **Control**: You can control devices and call services.
 3.  **System**: You can read/write configuration files to create scripts, automations, etc.
+4.  **Discovery**: If you don't know which entity to use, use `find_entities` to search for it.
 
-When asked to do something, use the appropriate tools. 
-Always provide a helpful, human-readable response summarizing your actions or findings.
-If you write a file, mention what you created.
+**IMPORTANT RULES**:
+- **LANGUAGE**: You MUST ALWAYS reply in the SAME LANGUAGE as the user's request. If the user asks in Greek, reply in Greek.
+- **AUTONOMY**: Do not ask the user for entity IDs. Search for them yourself using `find_entities` (e.g., search for 'weather' if asked about weather).
+- **HELPFULNESS**: Always provide a helpful, human-readable response summarizing your actions or findings.
 """
 
     def process_request(self, prompt):
@@ -280,6 +312,8 @@ If you write a file, mention what you created.
                             result = self.ha.read_file(args.get("path"))
                         elif fn_name == "write_file":
                             result = self.ha.write_file(args.get("path"), args.get("content"))
+                        elif fn_name == "find_entities":
+                            result = self.ha.find_entities(args.get("keyword"))
                             
                         log(f"  -> Result: {str(result)[:50]}...")
                         
