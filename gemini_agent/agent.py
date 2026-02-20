@@ -178,25 +178,36 @@ class HA:
     def list_files(self, path="."):
         """List files in the config directory."""
         try:
-            full_path = os.path.join(CONFIG_PATH, path)
+            # Secure path resolution to stay inside CONFIG_PATH
+            safe_path = path.lstrip("/\\") if path else "."
+            full_path = os.path.abspath(os.path.join(CONFIG_PATH, safe_path))
+            
+            if not full_path.startswith(CONFIG_PATH):
+                return "Error: Path is outside the config directory."
+            
             if not os.path.exists(full_path):
-                return "Path does not exist."
+                return f"Path does not exist: {safe_path}"
             
             items = []
             for item in os.listdir(full_path):
                 items.append(item)
-            return "\n".join(items)
+            return "\n".join(items) if items else "Directory is empty."
         except Exception as e:
             return f"Error listing files: {e}"
 
     def read_file(self, path):
         """Read a file from the config directory."""
         try:
-            full_path = os.path.join(CONFIG_PATH, path)
+            safe_path = path.lstrip("/\\")
+            full_path = os.path.abspath(os.path.join(CONFIG_PATH, safe_path))
+            
+            if not full_path.startswith(CONFIG_PATH):
+                return "Error: Path is outside the config directory."
+                
             if not os.path.exists(full_path):
                 return "File does not exist."
             
-            with open(full_path, "r") as f:
+            with open(full_path, "r", encoding="utf-8") as f:
                 return f.read()
         except Exception as e:
             return f"Error reading file: {e}"
@@ -204,10 +215,15 @@ class HA:
     def write_file(self, path, content):
         """Write content to a file in the config directory."""
         try:
-            full_path = os.path.join(CONFIG_PATH, path)
-            with open(full_path, "w") as f:
+            safe_path = path.lstrip("/\\")
+            full_path = os.path.abspath(os.path.join(CONFIG_PATH, safe_path))
+            
+            if not full_path.startswith(CONFIG_PATH):
+                return "Error: Path is outside the config directory."
+                
+            with open(full_path, "w", encoding="utf-8") as f:
                 f.write(content)
-            return f"File {path} written successfully."
+            return f"File {safe_path} written successfully."
         except Exception as e:
             return f"Error writing file: {e}"
 
@@ -242,11 +258,11 @@ class GeminiAgent:
                 function_declarations=[
                      types.FunctionDeclaration(
                         name="find_entities",
-                        description="[FALLBACK ONLY] Search for entities when NO entity ID was provided in the user's request. Use the SAME LANGUAGE as the request for keywords (e.g., if user asks in Greek, search in Greek).",
+                        description="[FALLBACK ONLY] Search for entities when NO entity ID was provided. If your first search fails, try a SINGLE broad keyword (e.g. 'car' instead of 'car charger cost'). Try English if local language fails.",
                         parameters=types.Schema(
                             type=types.Type.OBJECT,
                             properties={
-                                "keyword": types.Schema(type=types.Type.STRING, description="Keywords in the user's original language (e.g., 'σαλόνι θερμοκρασία' for Greek, 'living room temperature' for English)"),
+                                "keyword": types.Schema(type=types.Type.STRING, description="A single broad keyword to search for (e.g. 'car', 'θερμοσίφωνας')"),
                             },
                             required=["keyword"]
                         )
