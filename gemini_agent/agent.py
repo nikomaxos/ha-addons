@@ -258,11 +258,11 @@ class GeminiAgent:
                 function_declarations=[
                      types.FunctionDeclaration(
                         name="find_entities",
-                        description="[FALLBACK ONLY] Search for entities when NO entity ID was provided. If your first search fails, try a SINGLE broad keyword (e.g. 'car' instead of 'car charger cost'). Try English if local language fails.",
+                        description="[FALLBACK ONLY] Search for entities. CRITICAL: Home Assistant entity IDs are usually in English. If the user asks in Greek (e.g. 'θέρμανση'), YOU MUST TRANSLATE the keyword to English (e.g. 'heating') before searching! Use a SINGLE broad keyword.",
                         parameters=types.Schema(
                             type=types.Type.OBJECT,
                             properties={
-                                "keyword": types.Schema(type=types.Type.STRING, description="A single broad keyword to search for (e.g. 'car', 'θερμοσίφωνας')"),
+                                "keyword": types.Schema(type=types.Type.STRING, description="A single ENGLISH keyword (e.g. 'heating', 'cost', 'car')"),
                             },
                             required=["keyword"]
                         )
