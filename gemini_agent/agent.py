@@ -406,7 +406,7 @@ When presenting historical data from get_history:
                 )
             )
             
-            max_turns = 5
+            max_turns = 15
             turns = 0
             
             while turns < max_turns:
