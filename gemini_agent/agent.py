@@ -196,7 +196,7 @@ class HA:
 
 # --- GEMINI CLIENT ---
 class GeminiAgent:
-    def __init__(self, api_key, ha_client, model_name="gemini-3.1-pro"):
+    def __init__(self, api_key, ha_client, model_name="gemini-2.5-pro"):
         self.client = genai.Client(api_key=api_key)
         self.ha = ha_client
         self.model_name = model_name
@@ -412,7 +412,7 @@ if __name__ == "__main__":
         with open(OPTIONS_PATH) as f: opts = json.load(f)
         input_ent = opts.get("prompt_entity", "input_text.gemini_prompt")
         api_key = opts.get("gemini_api_key")
-        gemini_model = opts.get("gemini_model", "gemini-3.1-pro")
+        gemini_model = opts.get("gemini_model", "gemini-2.5-pro")
         ha_token = opts.get("ha_token")
     except:
         log("❌ Config Error: Could not read options.json", "ERR"); sys.exit(1)
