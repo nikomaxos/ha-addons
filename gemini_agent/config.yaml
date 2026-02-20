@@ -1,5 +1,5 @@
 name: "Jarvis AI Professional"
-version: "24.3.1"
+version: "25.2.0"
 slug: "jarvis_ai_pro"
 description: "Enterprise AI Agent (Native Mode - Debug Edition)"
 startup: application
@@ -20,9 +20,19 @@ options:
   ha_token: ""
   prompt_entity: "input_text.gemini_prompt"
   history_limit_days: 30
+  proactive_interval_hours: 12
+  proactive_media_player: "media_player.living_room_speaker"
+  proactive_tts_service: "tts.google_en_com"
+  proactive_dnd_start: "22:00"
+  proactive_dnd_end: "08:00"
 schema:
   gemini_api_key: str
   gemini_model: "list(gemini-2.5-pro|gemini-2.5-flash|gemini-2.0-flash|gemini-1.5-pro)"
   ha_token: str
   prompt_entity: str
   history_limit_days: int
+  proactive_interval_hours: int
+  proactive_media_player: str
+  proactive_tts_service: str
+  proactive_dnd_start: str
+  proactive_dnd_end: str

@@ -8,6 +8,8 @@ import pytz
 from google import genai
 from google.genai import types
 import unicodedata
+import traceback
+import threading
 
 # --- CONFIG ---
 OPTIONS_PATH = "/data/options.json"
@@ -81,6 +83,27 @@ class HA:
             log(f"Error getting state: {e}", "ERR")
             return "ERROR"
             
+    def get_bulk_states(self):
+        """Fetch simplified states of key domains for proactive AI analysis."""
+        try:
+            url = f"{self.base_url}/states"
+            res = requests.get(url, headers=self.headers, timeout=10)
+            if res.ok:
+                all_states = res.json()
+                simplified = {}
+                for s in all_states:
+                    domain = s["entity_id"].split(".")[0]
+                    if domain in ["light", "switch", "climate", "sensor", "media_player", "person", "cover", "lock", "water_heater"]:
+                        simplified[s["entity_id"]] = {
+                            "state": s["state"],
+                            "name": s["attributes"].get("friendly_name")
+                        }
+                return json.dumps(simplified, ensure_ascii=False)
+            return "{}"
+        except Exception as e:
+            log(f"Bulk state error: {e}", "ERR")
+            return "{}"
+
     def find_entities(self, keyword):
         """Search for entities matching a keyword."""
         try:
@@ -188,6 +211,17 @@ class HA:
         except Exception as e:
             return f"Error writing file: {e}"
 
+    def reload_config(self, domain="automation"):
+        """Reload a Home Assistant configuration domain (like automation or script)."""
+        try:
+            url = f"{self.base_url}/services/{domain}/reload"
+            res = requests.post(url, headers=self.headers, timeout=10)
+            if res.ok:
+                return f"Successfully reloaded {domain}."
+            return f"Failed to reload {domain}: {res.status_code} - {res.text}"
+        except Exception as e:
+            return f"Error reloading config: {e}"
+
     def fire_event(self, event_type, event_data):
         try:
             requests.post(f"{self.base_url}/events/{event_type}", headers=self.headers, json=event_data, timeout=5)
@@ -275,6 +309,17 @@ class GeminiAgent:
                             required=["path", "content"]
                         )
                     ),
+                    types.FunctionDeclaration(
+                        name="reload_config",
+                        description="Reload a Home Assistant configuration domain after creating or modifying YAML files.",
+                        parameters=types.Schema(
+                            type=types.Type.OBJECT,
+                            properties={
+                                "domain": types.Schema(type=types.Type.STRING, description="The domain to reload (e.g., 'automation', 'script', 'core', 'group')"),
+                            },
+                            required=["domain"]
+                        )
+                    ),
                 ]
             )
         ]
@@ -286,7 +331,7 @@ You handle complex tasks that require:
 - Historical data analysis (get_history)
 - System file operations (read_file, write_file, list_files)
 - Advanced service calls (call_service)
-- Automation/script creation
+- Zero-Touch Automation/Script creation (Write the file, then call `reload_config`)
 
 **ENTITY RESOLUTION STRATEGY:**
 1. **Check if entity IDs are already in the request** (e.g., "sensor.thermokrasia_saloniou_2", "climate.living_room")
@@ -306,6 +351,7 @@ You handle complex tasks that require:
   - If the request is in English, respond in English.
 - **TRUST THE CONTEXT**: If an entity ID is provided in the request, it's already been resolved. Use it directly.
 - **AUTONOMY**: Use tools to complete tasks without asking the user for clarification
+- **ZERO-TOUCH CREATION**: When asked to create an automation or script, write the valid YAML to the correct file (e.g., automations.yaml or scripts.yaml), AND THEN IMMEDIATELY call `reload_config` for that domain (e.g., domain="automation") so it takes effect instantly without user input!
 - **HELPFULNESS**: Provide clear, human-readable summaries of your actions
 
 **DATA PRESENTATION (VOICE-FRIENDLY):**
@@ -333,34 +379,39 @@ When presenting historical data from get_history:
     def process_request(self, prompt):
         log(f"🤖 Processing with Gemini: {prompt[:50]}...")
         try:
+            contents = [types.Content(role="user", parts=[types.Part(text=prompt)])]
+            
             response = self.client.models.generate_content(
                 model=self.model_name,
-                contents=prompt,
+                contents=contents,
                 config=types.GenerateContentConfig(
                     tools=self.tools,
                     system_instruction=self.system_instruction
                 )
             )
             
-            # Handle Function Calls logic manually if needed, or let the library handle chat. 
-            # For simplicity in this loop, we handle single-turn tool use or simplest flow.
-            # The 'google-genai' library 0.2+ handles automatic tool execution if using chat, 
-            # but here we might need to manually invoke if managing state.
+            max_turns = 5
+            turns = 0
             
-            # Let's simple implementation: Check for tool calls
-            final_text = ""
-            
-            # Check for function calls in candidates
-            if response.candidates and response.candidates[0].content.parts:
+            while turns < max_turns:
+                turns += 1
+                
+                if not response.candidates or not response.candidates[0].content.parts:
+                    break
+                    
+                has_function_call = False
+                contents.append(response.candidates[0].content)
+                tool_responses = []
+                
                 for part in response.candidates[0].content.parts:
                     if part.function_call:
+                        has_function_call = True
                         fc = part.function_call
                         fn_name = fc.name
                         args = fc.args
                         
                         log(f"🛠️ Tool Call: {fn_name}({args})")
                         
-                        # Execute Tool
                         result = "Error: Tool execution failed"
                         if fn_name == "get_history":
                             result = self.ha.get_history(args.get("entity_id"), args.get("days_back", 1))
@@ -372,36 +423,117 @@ When presenting historical data from get_history:
                             result = self.ha.read_file(args.get("path"))
                         elif fn_name == "write_file":
                             result = self.ha.write_file(args.get("path"), args.get("content"))
+                        elif fn_name == "reload_config":
+                            result = self.ha.reload_config(args.get("domain", "automation"))
                         elif fn_name == "find_entities":
                             result = self.ha.find_entities(args.get("keyword"))
                             
                         log(f"  -> Result: {str(result)[:50]}...")
                         
-                        # Send result back to Gemini (simplified manual turn)
-                        # In a real chat app we'd append to history. 
-                        # Here we just do a follow-up generate for summary.
-                        
-                        response2 = self.client.models.generate_content(
-                            model=self.model_name,
-                            contents=[
-                                types.Content(role="user", parts=[types.Part(text=prompt)]),
-                                response.candidates[0].content, # The model's tool call
-                                types.Content(role="tool", parts=[types.Part(function_response=types.FunctionResponse(name=fn_name, response={"result": result}))])
-                            ],
-                            config=types.GenerateContentConfig(tools=self.tools)
+                        tool_responses.append(
+                            types.Part(function_response=types.FunctionResponse(name=fn_name, response={"result": result}))
                         )
-                        if response2.text:
-                             final_text += response2.text
-
-                    elif part.text:
+                
+                if has_function_call:
+                    contents.append(types.Content(role="tool", parts=tool_responses))
+                    response = self.client.models.generate_content(
+                        model=self.model_name,
+                        contents=contents,
+                        config=types.GenerateContentConfig(tools=self.tools, system_instruction=self.system_instruction)
+                    )
+                else:
+                    break
+                    
+            final_text = ""
+            if response.candidates and response.candidates[0].content.parts:
+                for part in response.candidates[0].content.parts:
+                    if part.text:
                         final_text += part.text
-
+                        
             return final_text if final_text else "Processed action."
 
         except Exception as e:
             log(f"Gemini Error: {e}", "ERR")
             return f"I encountered an error: {e}"
 
+
+# --- PROACTIVE ENGINE ---
+def is_dnd_active(tz, start_str, end_str):
+    """Check if current time is within DND hours."""
+    try:
+        now = datetime.now(tz).time()
+        start = datetime.strptime(start_str, "%H:%M").time()
+        end = datetime.strptime(end_str, "%H:%M").time()
+        
+        if start <= end:
+            return start <= now <= end
+        else: # Crosses midnight
+            return start <= now or now <= end
+    except Exception as e:
+        log(f"DND Parse Error: {e}", "WARN")
+        return False
+
+def proactive_worker(agent_instance, ha_instance, opts):
+    interval_hours = int(opts.get("proactive_interval_hours", 12))
+    speaker = opts.get("proactive_media_player", "media_player.living_room_speaker")
+    tts_service = opts.get("proactive_tts_service", "tts.google_en_com")
+    dnd_start = opts.get("proactive_dnd_start", "22:00")
+    dnd_end = opts.get("proactive_dnd_end", "08:00")
+    
+    log(f"🧠 Proactive Engine Initialized (Interval: {interval_hours}h)")
+    log(f"💤 Proactive Engine sleeping for {interval_hours} hours. (A proposal will be generated after this time).")
+    
+    # Optional debug rapid-fire mode: if interval_hours is 0, test it every minute
+    sleep_seconds = interval_hours * 3600 if interval_hours > 0 else 60
+    
+    while True:
+        time.sleep(sleep_seconds)
+        log("🔍 Proactive Engine waking up to analyze home state...")
+        
+        # Check DND
+        if is_dnd_active(ha_instance.tz, dnd_start, dnd_end):
+            log(f"🤫 DND is active ({dnd_start}-{dnd_end}). Skipping proactive analysis.")
+            continue
+            
+        try:
+            states = ha_instance.get_bulk_states()
+            prompt = f"""
+            SYSTEM: You are the autonomous proactive engine of Jarvis, the Smart Home AI.
+            Analyze the following current state of the user's home:
+            {states}
+            
+            Identify ONE single actionable efficiency, energy-saving, or convenience proposal.
+            Respond ONLY with the spoken text of the proposal. Do not include markdown or explanations.
+            You MUST use the SAME LANGUAGE as the user's primary interface (e.g. Greek if entity names are Greek, English otherwise).
+            Make the proposal conversational, friendly, and brief (like a smart butler speaking).
+            
+            Example: 'Παρατήρησα ότι τα φώτα στο σαλόνι είναι ανοιχτά αλλά δεν υπάρχει κανείς εκεί. Να τα κλείσω;'
+            """
+            
+            response = agent_instance.client.models.generate_content(
+                model=agent_instance.model_name,
+                contents=prompt
+            )
+            
+            if response.text:
+                proposal = response.text.replace('"', '').replace('`', '').strip()
+                log(f"💡 Proactive Proposal Generated: {proposal}")
+                
+                 # Send event (for UI/Dashboard logging)
+                ha_instance.fire_event("jarvis_proactive_proposal", {"text": proposal})
+                
+                # Directly Speak the Proposal via Native TTS target!
+                domain, srv = tts_service.split('.')
+                tts_data = {
+                    "entity_id": tts_service,
+                    "media_player_entity_id": speaker,
+                    "message": proposal
+                }
+                res = ha_instance.call_service(domain, srv, tts_data)
+                log(f"📢 Proactive TTS Triggered: {res}")
+                
+        except Exception as e:
+            log(f"Proactive Engine Error: {e}", "ERR")
 
 # --- MAIN ---
 if __name__ == "__main__":
@@ -424,6 +556,10 @@ if __name__ == "__main__":
 
     ha = HA(override_token=ha_token)
     agent = GeminiAgent(api_key, ha, gemini_model)
+    
+    # Start Proactive Engine
+    t = threading.Thread(target=proactive_worker, args=(agent, ha, opts), daemon=True)
+    t.start()
     
     log(f"👀 Watching: {input_ent}")
     
@@ -457,6 +593,13 @@ if __name__ == "__main__":
                 time.sleep(2)
 
         except Exception as e:
-            log(f"🔥 Loop Error: {e}", "ERR")
+            err_msg = traceback.format_exc()
+            log(f"🔥 Loop Error: {e}\n{err_msg}", "ERR")
+            try:
+                crash_path = os.path.join(CONFIG_PATH, "jarvis_crash_reports.txt")
+                with open(crash_path, "a") as f:
+                    f.write(f"\n\n=== CRASH REPORT {datetime.now()} ===\n{err_msg}")
+                ha.fire_event("jarvis_response", {"text": "Αντιμετώπισα ένα κρίσιμο σφάλμα Python. Έχω αποθηκεύσει την αναφορά σφάλματος στο jarvis_crash_reports.txt για τον προγραμματιστή μου.", "original_request": "CRASH"})
+            except: pass
         
         time.sleep(1)
