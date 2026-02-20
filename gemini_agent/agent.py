@@ -115,21 +115,22 @@ class HA:
                 
                 # Normalize keyword: lowercase + remove accents
                 def normalize(s):
+                    if not isinstance(s, str):
+                        s = str(s)
                     return remove_accents(s.lower())
 
                 terms = normalize(keyword).split()
                 
                 for entity in all_states:
                     eid = normalize(entity.get('entity_id', ''))
-                    friendly = normalize(entity.get('attributes', {}).get('friendly_name', ''))
+                    attrs = entity.get('attributes', {})
+                    friendly = normalize(attrs.get('friendly_name', ''))
                     domain = eid.split('.')[0]
-                    device_class = normalize(entity.get('attributes', {}).get('device_class', ''))
                     
-                    # Search text includes ID, Name, Domain, and Device Class
-                    # We also add 'thermostat' alias for climate domain
-                    aliases = "thermostat temperature" if domain == "climate" else ""
+                    # Gather all string-like attributes for deep searching (includes aliases, device_class, etc.)
+                    attr_values = " ".join([normalize(v) for k, v in attrs.items() if isinstance(v, (str, int, float, list))])
                     
-                    search_text = f"{eid} {friendly} {domain} {device_class} {aliases}"
+                    search_text = f"{eid} {friendly} {domain} {attr_values}"
                     
                     # Match if ALL terms are present
                     if all(term in search_text for term in terms):
@@ -258,11 +259,11 @@ class GeminiAgent:
                 function_declarations=[
                      types.FunctionDeclaration(
                         name="find_entities",
-                        description="[FALLBACK ONLY] Search for entities. CRITICAL: Home Assistant entity IDs are usually in English. If the user asks in Greek (e.g. 'θέρμανση'), YOU MUST TRANSLATE the keyword to English (e.g. 'heating') before searching! Use a SINGLE broad keyword.",
+                        description="[FALLBACK ONLY] Search for entities. Note: Entities might be named in Greek, Greeklish, or English. If your first search fails, try translating your keyword or using a broad term (e.g. search 'thermansi', then 'θέρμανση', then 'heating'). The search looks deeply into entity IDs, names, device classes, and aliases.",
                         parameters=types.Schema(
                             type=types.Type.OBJECT,
                             properties={
-                                "keyword": types.Schema(type=types.Type.STRING, description="A single ENGLISH keyword (e.g. 'heating', 'cost', 'car')"),
+                                "keyword": types.Schema(type=types.Type.STRING, description="A single broad keyword (e.g. 'heating', 'cost', 'car', 'θερμοσίφωνας')"),
                             },
                             required=["keyword"]
                         )
