@@ -1,7 +1,8 @@
 #!/usr/bin/env bashio
 API_KEY=$(bashio::config 'api_key')
-bashio::log.info "Starting Google Antigravity Web UI (via ttyd)..."
+bashio::log.info "Starting AntiWeb UI..."
 export GEMINI_API_KEY="$API_KEY"
-export TERM=xterm-256color
-export COLORTERM=truecolor
-exec ttyd -p 8080 -W /usr/local/bin/agy
+export PORT=8080
+export HOST=0.0.0.0
+export BIND=0.0.0.0
+exec antiweb --port 8080 --host 0.0.0.0
