@@ -1,6 +1,6 @@
 name: "Antigravity UI"
 description: "Google Antigravity Web Interface"
-version: "1.0.2"
+version: "1.0.3"
 slug: "antigravity_ui"
 init: false
 arch:
