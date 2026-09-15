@@ -1,6 +1,6 @@
 name: "Antigravity UI"
-description: "Google Antigravity Web Interface with Full System Access"
-version: "1.1.5"
+description: "Google Antigravity Web Interface (Default Username: antiweb)"
+version: "1.1.6"
 slug: "antigravity_ui"
 init: false
 arch:
