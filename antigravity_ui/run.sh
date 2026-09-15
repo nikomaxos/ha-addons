@@ -1,9 +1,7 @@
 #!/usr/bin/env bashio
-API_KEY=$(bashio::config 'api_key')
 WEB_PASS=$(bashio::config 'web_password')
 
 bashio::log.info "Starting AntiWeb UI..."
-export GEMINI_API_KEY="$API_KEY"
 export PORT=8080
 export HOST=0.0.0.0
 export BIND=0.0.0.0
