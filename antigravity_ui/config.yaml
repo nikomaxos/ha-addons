@@ -1,6 +1,6 @@
 name: "Antigravity UI"
 description: "Google Antigravity Web Interface"
-version: "1.0.9"
+version: "1.1.0"
 slug: "antigravity_ui"
 init: false
 arch:
@@ -17,6 +17,8 @@ panel_icon: "mdi:robot-outline"
 panel_title: "Antigravity UI"
 options:
   api_key: ""
+  web_password: ""
 schema:
   api_key: str
+  web_password: str?
 startup: application
