@@ -1,0 +1,23 @@
+name: "Antigravity Brain"
+description: "Smart Voice Assistant Brain powered by Google Gemini API with tool calling"
+version: "2.0.2"
+slug: "antigravity_brain"
+init: false
+arch:
+  - aarch64
+  - amd64
+hassio_api: true
+homeassistant_api: true
+map:
+  - homeassistant_config:rw
+  - share:rw
+options:
+  api_port: 8000
+  gemini_api_key: ""
+  model: "3.8 flash high"
+schema:
+  api_port: int
+  gemini_api_key: str?
+  model: list(3.8 flash high|3.1 pro high)
+ports:
+  8000/tcp: 8000
