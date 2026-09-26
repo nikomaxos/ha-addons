@@ -103,14 +103,11 @@ def tool_get_ha_states(entity_id: str = "") -> str:
         if resp.status_code == 200:
             data = resp.json()
             if isinstance(data, list):
-                # Summarize: return entity_id, state, and key attributes
+                # Summarize: return entity_id and state
                 summary = []
-                for s in data[:50]:  # limit to 50 to avoid huge output
+                for s in data:
                     summary.append(f"{s['entity_id']}: {s['state']}")
-                result = "\n".join(summary)
-                if len(data) > 50:
-                    result += f"\n... and {len(data) - 50} more entities"
-                return result
+                return "\n".join(summary)
             elif isinstance(data, dict):
                 return json.dumps({
                     "entity_id": data.get("entity_id"),
