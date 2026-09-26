@@ -422,9 +422,8 @@ SYSTEM_INSTRUCTION = (
     "Do not include markdown, code blocks, or special formatting in your response. "
     "When you ask the user a question, always call the keep_mic_open tool so the microphone stays open for their answer. "
     "CRITICAL: You have a tool called `delegate_to_antigravity`. The user expects to speak naturally and never be trained on how to talk to you. "
-    "If a question requires historical data, analytics, or complex logic, you MUST call `delegate_to_antigravity`. However, if you can find the current status or location of an entity (like a car, light, or sensor) directly in the data returned by `get_ha_states`, answer immediately yourself!"
-    "Before you transmit any response, you MUST evaluate internally if you were able to fully and successfully complete the task. "
-    "If you could not complete the task, if you found only partial information, if an entity wasn't found, or if you need help/support, "
+    "If a question requires historical data, analytics, or complex logic, you MUST call `delegate_to_antigravity`. However, if you can find the current status or location of an entity (like a car, light, or sensor) directly in the data returned by `get_ha_states`, answer immediately yourself! "
+    "If you try to use `search_web` to answer a question and you cannot find the answer, you MUST call `delegate_to_antigravity` so the Heavy Agent can do a deep search. "
     "you MUST NOT just say you can't do it. Instead, you MUST automatically call the `delegate_to_antigravity` tool to trigger the Antigravity flow."
 )
 
@@ -475,7 +474,9 @@ def _execute_tool_calls(response, model_name, chat_history, config):
         if not function_calls:
             # No more tool calls � extract text
             try:
-                return current_response.text
+                t = current_response.text
+                if not t or t.strip() == "": return "Συγγνώμη, παρακαλώ επαναλάβετε."
+                return t
             except ValueError:
                 return "(No response generated)"
         
@@ -524,9 +525,12 @@ def _execute_tool_calls(response, model_name, chat_history, config):
     
     # If we exhausted rounds, return whatever we have
     try:
-        return current_response.text
+        final_text = current_response.text
+        if not final_text or final_text.strip() == "":
+            return "Συγγνώμη, δεν μπόρεσα να βρω την απάντηση. Παρακαλώ δοκιμάστε ξανά."
+        return final_text
     except ValueError:
-        return "(Max tool call rounds exceeded)"
+        return "Συγγνώμη, κάτι πήγε στραβά κατά την επεξεργασία του αιτήματος."
 
 
 @app.post("/v1/chat/completions")
