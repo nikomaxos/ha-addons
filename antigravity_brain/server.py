@@ -237,11 +237,13 @@ def _run_heavy_agent(task_description: str):
     try:
         MAX_STEPS = 15
         for step in range(MAX_STEPS):
+            print(f"[Heavy Agent] Step {step+1}: Calling generate_content...")
             response = client.models.generate_content(
                 model=MODEL_MAP.get(selected_model, selected_model),
                 contents=chat_history,
                 config=config
             )
+            print(f"[Heavy Agent] Step {step+1}: generate_content returned.")
             
             candidate = response.candidates[0]
             function_calls = []
@@ -375,7 +377,7 @@ GEMINI_TOOLS = [{
                 "type": "OBJECT",
                 "properties": {
                     "task_description": {"type": "STRING", "description": "Description of the task to delegate."},
-                    "immediate_reply": {"type": "STRING", "description": "A natural, contextual sentence you must speak to the user right now to confirm you are working on it (e.g. 'Έγινε, βάζω υπενθύμιση για τον καφέ', 'Μισό λεπτό να ελέγξω τα δεδομένα'). Must be in the user's language."}
+                    "immediate_reply": {"type": "STRING", "description": "A natural, contextual sentence you must speak to the user right now to confirm you are working on it (e.g. 'Έγινε, βάζω υπενθύμιση', 'Μισό λεπτό να ελέγξω'). Must be in the user's language."}
                 },
                 "required": ["task_description", "immediate_reply"],
             },
