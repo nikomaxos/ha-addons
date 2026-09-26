@@ -203,7 +203,7 @@ def _run_heavy_agent(task_description: str):
                 GEMINI_TOOLS[0]["function_declarations"][1], # call_ha_service
                 GEMINI_TOOLS[0]["function_declarations"][2], # get_ha_states
                 GEMINI_TOOLS[0]["function_declarations"][3], # search_web
-                                GEMINI_TOOLS[0]["function_declarations"][7], # store_memory
+                                GEMINI_TOOLS[0]["function_declarations"][6], # store_memory
             ]
         }
     ]
