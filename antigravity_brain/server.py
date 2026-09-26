@@ -293,10 +293,10 @@ def _run_heavy_agent(task_description: str):
     print(f"[Heavy Agent] Finished. Result: {final_result}")
     
     if SUPERVISOR_TOKEN:
-        url = f"{SUPERVISOR_URL}/services/persistent_notification/create"
+        url = f"{SUPERVISOR_URL}/services/notify/notify"
         payload = {
             "message": final_result,
-            "title": "Antigravity Heavy Agent Completed"
+            "title": "Antigravity Heavy Agent"
         }
         try:
             resp = http_requests.post(url, headers=_supervisor_headers(), json=payload, timeout=5)
@@ -420,8 +420,7 @@ SYSTEM_INSTRUCTION = (
     "Do not include markdown, code blocks, or special formatting in your response. "
     "When you ask the user a question, always call the keep_mic_open tool so the microphone stays open for their answer. "
     "CRITICAL: You have a tool called `delegate_to_antigravity`. The user expects to speak naturally and never be trained on how to talk to you. "
-    "For ANY question requiring historical data, analytics, databases, complex logic, or information you cannot find immediately via get_ha_states, you MUST IMMEDIATELY call `delegate_to_antigravity` without trying to solve it yourself. Do NOT attempt to guess. "
-        "Το αυτοκίνητο (αμάξι) του χρήστη (Ford Kuga) παρακολουθείται από τα entities: `device_tracker.fordpass_wf0fxxwpmhpe00152_tracker` και `sensor.fordpass_car_address`. Για την τοποθεσία του αυτοκινήτου, έλεγξε αυτά τα entities κατευθείαν. "
+    "If a question requires historical data, analytics, or complex logic, you MUST call `delegate_to_antigravity`. However, if you can find the current status or location of an entity (like a car, light, or sensor) directly in the data returned by `get_ha_states`, answer immediately yourself!"
     "Before you transmit any response, you MUST evaluate internally if you were able to fully and successfully complete the task. "
     "If you could not complete the task, if you found only partial information, if an entity wasn't found, or if you need help/support, "
     "you MUST NOT just say you can't do it. Instead, you MUST automatically call the `delegate_to_antigravity` tool to trigger the Antigravity flow."
