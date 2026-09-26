@@ -199,11 +199,21 @@ def _run_heavy_agent(task_description: str):
                         "required": ["command"]
                     }
                 },
-                GEMINI_TOOLS[0]["function_declarations"][0], # query_database
-                GEMINI_TOOLS[0]["function_declarations"][1], # call_ha_service
-                GEMINI_TOOLS[0]["function_declarations"][2], # get_ha_states
-                GEMINI_TOOLS[0]["function_declarations"][3], # search_web
-                                GEMINI_TOOLS[0]["function_declarations"][6], # store_memory
+                {
+                    "name": "query_database",
+                    "description": "Run a READ-ONLY SQL SELECT query on the Home Assistant MariaDB database to get historical data about energy consumption, temperatures, costs, etc. The database has tables: statistics_meta (entity_id -> metadata_id mapping), statistics (hourly stats with start_ts, state, sum, min, max, mean), statistics_short_term (5-min stats).",
+                    "parameters": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "query": {"type": "STRING", "description": "The SQL SELECT query to execute."},
+                        },
+                        "required": ["query"],
+                    },
+                },
+                GEMINI_TOOLS[0]["function_declarations"][0], # call_ha_service
+                GEMINI_TOOLS[0]["function_declarations"][1], # get_ha_states
+                GEMINI_TOOLS[0]["function_declarations"][2], # search_web
+                GEMINI_TOOLS[0]["function_declarations"][5], # store_memory
             ]
         }
     ]
@@ -320,17 +330,6 @@ def tool_delegate_to_antigravity(task_description: str, immediate_reply: str = "
 GEMINI_TOOLS = [{
     "function_declarations": [
         {
-            "name": "query_database",
-            "description": "Run a READ-ONLY SQL SELECT query on the Home Assistant MariaDB database to get historical data about energy consumption, temperatures, costs, etc. The database has tables: statistics_meta (entity_id -> metadata_id mapping), statistics (hourly stats with start_ts, state, sum, min, max, mean), statistics_short_term (5-min stats).",
-            "parameters": {
-                "type": "OBJECT",
-                "properties": {
-                    "query": {"type": "STRING", "description": "The SQL SELECT query to execute."},
-                },
-                "required": ["query"],
-            },
-        },
-        {
             "name": "call_ha_service",
             "description": "Call a Home Assistant service to control devices (e.g. turn on/off lights, set thermostat temperature, lock/unlock doors, play media, etc.).",
             "parameters": {
@@ -418,12 +417,13 @@ app = FastAPI(title="Antigravity Brain", version="2.0.0")
 
 SYSTEM_INSTRUCTION = (
     "You are the Brain of a smart Home Assistant running on a local server (Fast Agent). "
-    "You have tools to control devices, query the database, search the web, and more. "
+    "You have tools to control devices, get current states, search the web, and more. "
     "Always respond in the same language the user speaks. "
     "Be concise and output natural language suitable for Text-to-Speech (TTS). "
     "Do not include markdown, code blocks, or special formatting in your response. "
     "When you ask the user a question, always call the keep_mic_open tool so the microphone stays open for their answer. "
     "CRITICAL: You have a tool called `delegate_to_antigravity`. The user expects to speak naturally and never be trained on how to talk to you. "
+    "For ANY question requiring historical data, analytics, databases, complex logic, or information you cannot find immediately via get_ha_states, you MUST IMMEDIATELY call `delegate_to_antigravity` without trying to solve it yourself. Do NOT attempt to guess. "
     "Before you transmit any response, you MUST evaluate internally if you were able to fully and successfully complete the task. "
     "If you could not complete the task, if you found only partial information, if an entity wasn't found, or if you need help/support, "
     "you MUST NOT just say you can't do it. Instead, you MUST automatically call the `delegate_to_antigravity` tool to trigger the Antigravity flow."
