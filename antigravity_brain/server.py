@@ -708,7 +708,7 @@ GEMINI_TOOLS = [{
 
             "name": "search_web",
 
-            "description": "Search the web for information using DuckDuckGo. Use this to answer questions about current events, weather, news, or any topic you don't have information about.",
+            "description": "Search the web for simple facts only (weather, current events). DO NOT use this for deep research, local places, restaurants, or menus! If the user asks for restaurants, places, or complex local info, DO NOT call search_web. You MUST call delegate_to_antigravity instead.",
 
             "parameters": {
 
