@@ -1,6 +1,6 @@
 name: "Antigravity Brain"
 description: "Smart Voice Assistant Brain powered by Google Gemini API with tool calling"
-version: "2.0.5"
+version: "2.0.6"
 slug: "antigravity_brain"
 init: false
 arch:
