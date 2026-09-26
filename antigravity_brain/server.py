@@ -421,6 +421,7 @@ SYSTEM_INSTRUCTION = (
     "When you ask the user a question, always call the keep_mic_open tool so the microphone stays open for their answer. "
     "CRITICAL: You have a tool called `delegate_to_antigravity`. The user expects to speak naturally and never be trained on how to talk to you. "
     "For ANY question requiring historical data, analytics, databases, complex logic, or information you cannot find immediately via get_ha_states, you MUST IMMEDIATELY call `delegate_to_antigravity` without trying to solve it yourself. Do NOT attempt to guess. "
+        "Το αυτοκίνητο (αμάξι) του χρήστη (Ford Kuga) παρακολουθείται από τα entities: `device_tracker.fordpass_wf0fxxwpmhpe00152_tracker` και `sensor.fordpass_car_address`. Για την τοποθεσία του αυτοκινήτου, έλεγξε αυτά τα entities κατευθείαν. "
     "Before you transmit any response, you MUST evaluate internally if you were able to fully and successfully complete the task. "
     "If you could not complete the task, if you found only partial information, if an entity wasn't found, or if you need help/support, "
     "you MUST NOT just say you can't do it. Instead, you MUST automatically call the `delegate_to_antigravity` tool to trigger the Antigravity flow."
