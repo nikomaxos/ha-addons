@@ -19,8 +19,15 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up conversation entities."""
-    agent = AntigravityConversationAgent(hass, config_entry)
-    async_add_entities([agent])
+    # Fast Agent (Light)
+    fast_agent = AntigravityConversationAgent(
+        hass, config_entry, "Antigravity Fast", "3.8 flash high", "fast"
+    )
+    # Heavy Agent (Direct)
+    heavy_agent = AntigravityConversationAgent(
+        hass, config_entry, "Antigravity Heavy", "heavy_direct", "heavy"
+    )
+    async_add_entities([fast_agent, heavy_agent])
 
 
 class AntigravityConversationAgent(
@@ -29,13 +36,14 @@ class AntigravityConversationAgent(
     """Antigravity conversation agent."""
 
     _attr_has_entity_name = True
-    _attr_name = "Antigravity Brain"
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, name: str, model_name: str, id_suffix: str) -> None:
         """Initialize the agent."""
         self.hass = hass
         self.entry = entry
-        self._attr_unique_id = entry.entry_id
+        self._attr_name = name
+        self._model_name = model_name
+        self._attr_unique_id = f"{entry.entry_id}_{id_suffix}"
 
     @property
     def supported_languages(self) -> list[str] | Literal["*"]:
@@ -49,12 +57,9 @@ class AntigravityConversationAgent(
         session = async_get_clientsession(self.hass)
         url = "http://192.168.50.10:8000/v1/chat/completions"
         payload = {
-            "model": "3.8 flash high",
+            "model": self._model_name,
             "messages": [{"role": "user", "content": user_input.text}]
         }
-        
-        # If the API requires model (OpenAI spec)
-        # payload["model"] = "gemini-3.8-flash"
 
         try:
             async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=120)) as response:
@@ -67,10 +72,13 @@ class AntigravityConversationAgent(
                     reply = "Error: Invalid response format from Antigravity."
         except Exception as err:
             _LOGGER.error("Error calling Antigravity addon: %s", err)
-            reply = f"Sorry, I had a problem talking to Antigravity: {err}"
+            reply = f"Σφάλμα επικοινωνίας με τον Antigravity: {err}"
+
+        import re
+        speech_reply = re.sub(r'[*#_]', '', reply)
 
         intent_response = intent.IntentResponse(language=user_input.language)
-        intent_response.async_set_speech(reply)
+        intent_response.async_set_speech(speech_reply)
         return conversation.ConversationResult(
             response=intent_response, conversation_id=user_input.conversation_id
         )

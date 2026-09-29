@@ -341,27 +341,16 @@ def _run_heavy_agent(task_description: str):
     
 
     system_instruction = (
-
         "You are the Antigravity Heavy Agent running inside a Home Assistant add-on container. "
-
         "Your task is to autonomously solve complex problems. You have access to tools including "
-
         "execute_shell, query_database, call_ha_service, get_ha_states, and search_web. "
-
         "You have absolute freedom and MUST use your tools dynamically to solve problems. "
-
         "You have absolute freedom to interact with Home Assistant. You can use the `execute_shell` tool with `curl` to query or control the Home Assistant REST API at `http://supervisor/core/api/...` using the `$SUPERVISOR_TOKEN` environment variable (e.g., `curl -H 'Authorization: Bearer $SUPERVISOR_TOKEN' http://supervisor/core/api/states`). "
-
         "If the user asks you to wait or set a timer/reminder, you MUST use `execute_shell` to run `sleep <seconds>` "
-
         "or write a background python script to actually block execution for the requested time. "
-
         "Do not just reply that you did it, do it! "
-
         "Work through the problem step by step. When you have achieved the goal or encountered a fatal error, "
-
-        "output a final text summary of your results. This summary will be sent to the user as a notification."
-
+        "output your final answer strictly as a JSON object containing TWO fields: `markdown_response` (a detailed markdown response) and `spoken_response` (a conversational, TTS-friendly version without asterisks, hashes, or markdown formatting)."
     )
 
     
@@ -575,59 +564,49 @@ def _run_heavy_agent(task_description: str):
             
 
         if not final_result:
-
             final_result = "Heavy Agent reached maximum steps without a final text response."
-
             
-
     except Exception as e:
-
         final_result = f"Heavy Agent encountered a fatal error: {e}"
-
         
-
     print(f"[Heavy Agent] Finished. Result: {final_result}")
-
     
-
+    # Parse the final JSON response
+    markdown_response = final_result
+    spoken_response = final_result
+    try:
+        cleaned_result = final_result.strip()
+        if cleaned_result.startswith("```json"):
+            cleaned_result = cleaned_result[7:]
+        elif cleaned_result.startswith("```"):
+            cleaned_result = cleaned_result[3:]
+        if cleaned_result.endswith("```"):
+            cleaned_result = cleaned_result[:-3]
+        final_json = json.loads(cleaned_result.strip())
+        markdown_response = final_json.get("markdown_response", markdown_response)
+        spoken_response = final_json.get("spoken_response", spoken_response)
+    except Exception:
+        print("[Heavy Agent] Failed to parse JSON from final_result. Using as raw text.")
+    
     if SUPERVISOR_TOKEN:
-
         url = f"{SUPERVISOR_URL}/services/notify/notify"
-
         payload = {
-
-            "message": final_result,
-
+            "message": markdown_response,
             "title": "Antigravity Heavy Agent"
-
         }
-
         try:
-
             resp = http_requests.post(url, headers=_supervisor_headers(), json=payload, timeout=5)
-
             if resp.status_code != 200:
-
                 print(f"Error sending completion notification: {resp.status_code} - {resp.text}")
-
         except Exception as e:
-
             print(f"Error sending completion notification: {e}")
-
             
-
         event_url = f"{SUPERVISOR_URL}/events/antigravity_task_completed"
-
         try:
-
-            resp = http_requests.post(event_url, headers=_supervisor_headers(), json={"result": final_result, "task": task_description}, timeout=5)
-
+            resp = http_requests.post(event_url, headers=_supervisor_headers(), json={"result": final_result, "markdown_response": markdown_response, "spoken_response": spoken_response, "task": task_description}, timeout=5)
             if resp.status_code != 200:
-
                 print(f"Error firing completion event: {resp.status_code} - {resp.text}")
-
         except Exception as e:
-
             print(f"Error firing completion event: {e}")
 
 
@@ -992,10 +971,26 @@ async def chat_completions(request: Request):
     messages = data.get("messages", [])
 
     req_model = data.get("model", selected_model)
-
     gemini_model_name = MODEL_MAP.get(req_model, req_model)
 
-
+    if req_model == "heavy_direct":
+        if messages:
+            last_msg = messages[-1].get("content", "")
+            if last_msg:
+                import threading
+                t = threading.Thread(target=_run_heavy_agent, args=(last_msg,))
+                t.start()
+        
+        return {
+            "id": "chatcmpl-heavy",
+            "object": "chat.completion",
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "Το ψάχνω αμέσως. Δώσε μου λίγο χρόνο."
+                }
+            }]
+        }
 
     if not api_key:
 
