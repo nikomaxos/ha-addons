@@ -58,6 +58,21 @@ import memory_manager
 from auth_manager import CodexAuthManager, AntigravityAuthManager
 from dashboard_html import get_dashboard_html
 
+from tool_broker import tool_broker, install_cli_helpers
+from delegation import (
+    DelegationEnvelope,
+    REASON_HISTORICAL_ANALYSIS,
+    REASON_EXTERNAL_RESEARCH,
+    REASON_ENTITY_NOT_FOUND,
+    REASON_MULTI_STEP_ANALYSIS,
+    REASON_LOW_CONFIDENCE,
+    REASON_TOOL_FAILURE,
+    REASON_GENERAL_ESCALATION,
+)
+
+# Install CLI helpers for Codex / terminal agents
+install_cli_helpers()
+
 memory_manager.init_db()
 
 # ---------------------------------------------------------------------------
@@ -210,151 +225,18 @@ def _supervisor_headers():
 
 
 def tool_query_database(query: str) -> str:
-
-    """Run a READ-ONLY SQL query on the HA MariaDB database."""
-
-    if not query.strip().upper().startswith("SELECT"):
-
-        return "Error: Only SELECT (read-only) queries are allowed."
-
-    try:
-
-        cmd = [
-
-            "mysql", "-h", "core-mariadb",
-
-            "-u", "homeassistant", "-pRene1122",
-
-            "homeassistant", "-e", query
-
-        ]
-
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-
-        if result.returncode != 0:
-
-            return f"Query error: {result.stderr.strip()}"
-
-        return result.stdout.strip() or "(empty result)"
-
-    except Exception as e:
-
-        return f"Error executing query: {e}"
-
-
-
+    """Run a READ-ONLY SQL query on the HA MariaDB database via tool_broker."""
+    return tool_broker.query_database_readonly(query)
 
 
 def tool_call_ha_service(domain: str, service: str, service_data: dict = None) -> str:
-
-    """Call a Home Assistant service (e.g. turn_on light, set thermostat)."""
-
-    if not SUPERVISOR_TOKEN:
-
-        return "Error: SUPERVISOR_TOKEN not available. Addon may not have hassio_api enabled."
-
-    url = f"{SUPERVISOR_URL}/services/{domain}/{service}"
-
-    try:
-
-        resp = http_requests.post(url, headers=_supervisor_headers(), json=service_data or {}, timeout=10)
-
-        if resp.status_code == 200:
-
-            return f"Service {domain}.{service} called successfully."
-
-        return f"Service call failed: HTTP {resp.status_code} - {resp.text[:300]}"
-
-    except Exception as e:
-
-        return f"Error calling service: {e}"
-
-
-
+    """Call a Home Assistant service via tool_broker."""
+    return tool_broker.call_ha_service(domain, service, service_data)
 
 
 def tool_get_ha_states(entity_id: str = "") -> str:
-
-    """Get current states of HA entities. If entity_id is empty, returns all states."""
-
-    if not SUPERVISOR_TOKEN:
-
-        return "Error: SUPERVISOR_TOKEN not available."
-
-    url = f"{SUPERVISOR_URL}/states"
-
-    if entity_id:
-
-        url = f"{SUPERVISOR_URL}/states/{entity_id}"
-
-    try:
-
-        resp = http_requests.get(url, headers=_supervisor_headers(), timeout=10)
-
-        if resp.status_code == 200:
-
-            data = resp.json()
-
-            if isinstance(data, list):
-
-                # Summarize: return entity_id and state
-
-                summary = []
-
-                for s in data:
-
-                    summary.append(f"{s['entity_id']}: {s['state']}")
-
-                return "\n".join(summary)
-
-            elif isinstance(data, dict):
-
-                return json.dumps({
-
-                    "entity_id": data.get("entity_id"),
-
-                    "state": data.get("state"),
-
-                    "attributes": data.get("attributes", {}),
-
-                    "last_changed": data.get("last_changed"),
-
-                }, ensure_ascii=False, indent=2)
-
-        return f"Error: HTTP {resp.status_code} - {resp.text[:300]}"
-
-    except Exception as e:
-
-        return f"Error getting states: {e}"
-
-
-def tool_get_weather_forecast(entity_id: str = "weather.forecast_home", type: str = "hourly") -> str:
-    """Get weather forecast (hourly, daily) from Home Assistant."""
-    if not SUPERVISOR_TOKEN:
-        return "Error: SUPERVISOR_TOKEN not available."
-    if not entity_id:
-        entity_id = "weather.forecast_home"
-    if not type:
-        type = "hourly"
-    url = f"{SUPERVISOR_URL}/services/weather/get_forecasts?return_response=true"
-    try:
-        resp = http_requests.post(
-            url,
-            headers=_supervisor_headers(),
-            json={"entity_id": entity_id, "type": type},
-            timeout=10
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            forecast_data = data.get("service_response", {}).get(entity_id, {}).get("forecast", [])
-            if not forecast_data:
-                forecast_data = data.get(entity_id, {}).get("forecast", [])
-            if forecast_data:
-                return json.dumps(forecast_data[:12], ensure_ascii=False, indent=2)
-            return json.dumps(data, ensure_ascii=False)
-        return f"Error: HTTP {resp.status_code} - {resp.text[:300]}"
-    except Exception as e:
-        return f"Error getting weather forecast: {e}"
+    """Get current states of HA entities via tool_broker."""
+    return tool_broker.get_ha_states(entity_id)
 
 
 def tool_search_radio_browser(query: str) -> str:
@@ -374,33 +256,10 @@ def tool_search_radio_browser(query: str) -> str:
     except Exception as e:
         return f"Error searching radio: {e}"
 
+
 def tool_search_web(query: str) -> str:
-
-    """Search the web using DuckDuckGo."""
-
-    try:
-
-        from ddgs import DDGS
-
-        with DDGS() as ddgs:
-
-            results = list(ddgs.text(query, max_results=5))
-
-        if not results:
-
-            return "No results found."
-
-        output = []
-
-        for r in results:
-
-            output.append(f"**{r.get('title', '')}**\n{r.get('body', '')}\nURL: {r.get('href', '')}\n")
-
-        return "\n".join(output)
-
-    except Exception as e:
-
-        return f"Web search error: {e}"
+    """Search the web using DuckDuckGo via tool_broker."""
+    return tool_broker.search_web(query)
 
 
 
@@ -654,9 +513,18 @@ def _execute_antigravity_cli(task_description: str, thinking_level: str = "high"
 
 
 
-def _run_heavy_agent(task_description: str):
+def _run_heavy_agent(task_or_envelope):
     import threading
     start_time = time.time()
+    
+    if isinstance(task_or_envelope, DelegationEnvelope):
+        envelope = task_or_envelope
+        task_description = envelope.user_query
+        full_context_prompt = envelope.to_heavy_prompt()
+    else:
+        task_description = str(task_or_envelope)
+        full_context_prompt = task_description
+
     task_id = str(uuid.uuid4())[:8]
     task_record = {
         "id": task_id,
@@ -669,15 +537,13 @@ def _run_heavy_agent(task_description: str):
 
     print(f"[Heavy Agent] Starting task: {task_description}")
 
-    
-
     system_instruction = (
         "You are the Antigravity Heavy Agent running inside a Home Assistant add-on container. "
         "CRITICAL: ALL YOUR RESPONSES MUST BE IN GREEK (Ελληνικά). Never use English in your final answer to the user. "
         "Your task is to autonomously solve complex problems. You have access to tools including "
-        "execute_shell, query_database, call_ha_service, get_ha_states, and search_web. "
+        "execute_shell, query_database, render_template, get_ha_history, call_ha_service, get_ha_states, and search_web. "
         "You have absolute freedom and MUST use your tools dynamically to solve problems. "
-        "You have absolute freedom to interact with Home Assistant. You can use the `execute_shell` tool with `curl` to query or control the Home Assistant REST API at `http://supervisor/core/api/...` using the `$SUPERVISOR_TOKEN` environment variable (e.g., `curl -H 'Authorization: Bearer $SUPERVISOR_TOKEN' http://supervisor/core/api/states`). "
+        "You have absolute freedom to interact with Home Assistant. You can use the `execute_shell` tool with `curl` to query or control the Home Assistant REST API at `http://supervisor/core/api/...` using the `$SUPERVISOR_TOKEN` environment variable (e.g., `curl -H 'Authorization: Bearer $SUPERVISOR_TOKEN' http://supervisor/core/api/states`), or use helper commands: ha-template, ha-query, ha-history, ha-db. "
         "If the user asks you to wait or set a timer/reminder, you MUST use `execute_shell` to run `sleep <seconds>` "
         "or write a background python script to actually block execution for the requested time. "
         "Do not just reply that you did it, do it! "
@@ -685,88 +551,121 @@ def _run_heavy_agent(task_description: str):
         "output your final answer strictly as a JSON object containing TWO fields: `markdown_response` (a detailed markdown response) and `spoken_response` (a conversational, TTS-friendly version without asterisks, hashes, or markdown formatting)."
     )
 
-    
-
     heavy_tools_schema = [
-
         {
-
             "function_declarations": [
-
                 {
-
                     "name": "execute_shell",
-
-                    "description": "Execute a shell command inside the Home Assistant addon container (Alpine Linux).",
-
+                    "description": "Execute a shell command inside the Home Assistant addon container (Alpine Linux). Available helper CLI tools: ha-query, ha-template, ha-history, ha-db.",
                     "parameters": {
-
                         "type": "OBJECT",
-
                         "properties": {
-
                             "command": {"type": "STRING", "description": "The shell command to execute."}
-
                         },
-
                         "required": ["command"]
-
                     }
-
                 },
-
                 {
-
                     "name": "query_database",
-
-                    "description": "Run a READ-ONLY SQL SELECT query on the Home Assistant MariaDB database to get historical data about energy consumption, temperatures, costs, etc. The database has tables: statistics_meta (entity_id -> metadata_id mapping), statistics (hourly stats with start_ts, state, sum, min, max, mean), statistics_short_term (5-min stats).",
-
+                    "description": "Run a READ-ONLY SQL SELECT query on the Home Assistant MariaDB database to get historical data about energy consumption, temperatures, costs, etc.",
                     "parameters": {
-
                         "type": "OBJECT",
-
                         "properties": {
-
                             "query": {"type": "STRING", "description": "The SQL SELECT query to execute."},
-
                         },
-
                         "required": ["query"],
-
                     },
-
                 },
-
-                *[f for f in GEMINI_TOOLS[0]["function_declarations"] if f["name"] in ["call_ha_service", "get_ha_states", "get_weather_forecast", "search_web", "store_memory"]]
+                {
+                    "name": "render_template",
+                    "description": "Evaluate a Jinja2 template in Home Assistant. Extremely powerful: can inspect any entity state, attributes, forecasts, or calculate formulas (e.g. {{ states('weather.forecast_home') }}).",
+                    "parameters": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "template": {"type": "STRING", "description": "The Jinja2 template string."}
+                        },
+                        "required": ["template"]
+                    }
+                },
+                {
+                    "name": "get_ha_history",
+                    "description": "Fetch historical state transitions for an entity over the past N hours.",
+                    "parameters": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "entity_id": {"type": "STRING", "description": "The entity_id to inspect."},
+                            "hours": {"type": "INTEGER", "description": "Number of past hours (default: 24)."}
+                        },
+                        "required": ["entity_id"]
+                    }
+                },
+                {
+                    "name": "get_ha_states",
+                    "description": "Get current state and attributes of an entity or list all entities.",
+                    "parameters": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "entity_id": {"type": "STRING", "description": "Entity ID. Leave empty for all."}
+                        }
+                    }
+                },
+                {
+                    "name": "call_ha_service",
+                    "description": "Call a Home Assistant service/action.",
+                    "parameters": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "domain": {"type": "STRING", "description": "Service domain."},
+                            "service": {"type": "STRING", "description": "Service name."},
+                            "service_data": {"type": "OBJECT", "description": "Service payload."}
+                        },
+                        "required": ["domain", "service"]
+                    }
+                },
+                {
+                    "name": "search_web",
+                    "description": "Search the web using DuckDuckGo.",
+                    "parameters": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "query": {"type": "STRING", "description": "The search query."}
+                        },
+                        "required": ["query"]
+                    }
+                },
+                {
+                    "name": "store_memory",
+                    "description": "Store an important user preference or fact into the memory database.",
+                    "parameters": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "fact": {"type": "STRING", "description": "The fact to remember."}
+                        },
+                        "required": ["fact"]
+                    }
+                }
             ]
         }
     ]
     
     heavy_dispatch = {
         "execute_shell": lambda args: tool_execute_shell(args.get("command", "")),
-        "query_database": lambda args: tool_query_database(args.get("query", "")),
-        "call_ha_service": lambda args: tool_call_ha_service(args.get("domain", ""), args.get("service", ""), args.get("service_data")),
-        "get_ha_states": lambda args: tool_get_ha_states(args.get("entity_id", "")),
-        "get_weather_forecast": lambda args: tool_get_weather_forecast(args.get("entity_id", "weather.forecast_home"), args.get("type", "hourly")),
-        "search_web": lambda args: tool_search_web(args.get("query", "")),
+        "query_database": lambda args: tool_broker.query_database_readonly(args.get("query", "")),
+        "render_template": lambda args: tool_broker.render_template(args.get("template", "")),
+        "get_ha_history": lambda args: tool_broker.get_ha_history(args.get("entity_id", ""), args.get("hours", 24)),
+        "get_ha_states": lambda args: tool_broker.get_ha_states(args.get("entity_id", "")),
+        "call_ha_service": lambda args: tool_broker.call_ha_service(args.get("domain", ""), args.get("service", ""), args.get("service_data")),
+        "search_web": lambda args: tool_broker.search_web(args.get("query", "")),
         "store_memory": lambda args: tool_store_memory(args.get("fact", "")),
     }
 
-
-
     config = {
-
         "system_instruction": system_instruction,
-
         "tools": heavy_tools_schema,
-
     }
 
-    
-
     chat_history = [
-
-        {"role": "user", "parts": [{"text": f"Task: {task_description}"}]}
+        {"role": "user", "parts": [{"text": f"Task:\n{full_context_prompt}"}]}
     ]
 
     final_result = ""
@@ -774,7 +673,7 @@ def _run_heavy_agent(task_description: str):
     # 1. Attempt Codex CLI if configured
     if heavy_agent_engine in ["codex_fallback", "codex_only"]:
         print(f"[Heavy Agent] Evaluating task with Codex CLI (thinking: {heavy_agent_thinking})...", flush=True)
-        codex_out, limit_or_error = _execute_codex_cli(task_description, heavy_agent_thinking)
+        codex_out, limit_or_error = _execute_codex_cli(full_context_prompt, heavy_agent_thinking)
         if not limit_or_error and codex_out:
             final_result = codex_out
         elif limit_or_error:
@@ -783,7 +682,7 @@ def _run_heavy_agent(task_description: str):
     # 2. Attempt Antigravity CLI if configured or after Codex limit
     if not final_result and heavy_agent_engine in ["codex_fallback", "antigravity_only"]:
         print(f"[Heavy Agent] Evaluating task with Antigravity CLI (thinking: {heavy_agent_thinking})...", flush=True)
-        agy_out, limit_or_error = _execute_antigravity_cli(task_description, heavy_agent_thinking)
+        agy_out, limit_or_error = _execute_antigravity_cli(full_context_prompt, heavy_agent_thinking)
         if not limit_or_error and agy_out:
             final_result = agy_out
         elif limit_or_error:
@@ -909,14 +808,25 @@ def _run_heavy_agent(task_description: str):
 
 
 
-def tool_delegate_to_antigravity(task_description: str, immediate_reply: str = "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο.") -> str:
-    """Delegate a complex task to the Antigravity heavy agent."""
+def tool_delegate_to_antigravity(
+    task_description: str,
+    immediate_reply: str = "Το ελέγχω αναλυτικά και θα σε ενημερώσω.",
+    reason_code: str = REASON_GENERAL_ESCALATION,
+    resolved_entities: list = None
+) -> str:
+    """Delegate a complex task to the Antigravity heavy agent using a structured DelegationEnvelope."""
     import threading
     if not codex_mgr.is_authenticated and (codex_mgr.auth_state in ["expired", "idle"] or not codex_mgr.auth_pending):
         print("[Delegate] Codex CLI is unauthenticated. Triggering autonomous device code flow...", flush=True)
         codex_mgr.start_auth_flow(force=True)
 
-    threading.Thread(target=_run_heavy_agent, args=(task_description,), daemon=True).start()
+    envelope = DelegationEnvelope(
+        user_query=task_description,
+        reason_code=reason_code or REASON_GENERAL_ESCALATION,
+        resolved_entities=resolved_entities or [],
+        delegation_depth=1
+    )
+    threading.Thread(target=_run_heavy_agent, args=(envelope,), daemon=True).start()
     return "I have delegated the task to the Heavy Agent. I will notify you when it's done."
 
 
@@ -980,19 +890,8 @@ GEMINI_TOOLS = [{
         },
 
         {
-            "name": "get_weather_forecast",
-            "description": "Get weather forecast (hourly, daily) from Home Assistant. Use this when the user asks about upcoming weather, rain forecast, temperatures later today or this week.",
-            "parameters": {
-                "type": "OBJECT",
-                "properties": {
-                    "entity_id": {"type": "STRING", "description": "Weather entity ID (default: 'weather.forecast_home')."},
-                    "type": {"type": "STRING", "description": "Forecast type: 'hourly' or 'daily' (default: 'hourly')."}
-                }
-            }
-        },
-        {
             "name": "search_web",
-            "description": "Search the web for simple facts only (weather, current events). DO NOT use this for deep research, local places, restaurants, or menus! If the user asks for restaurants, places, or complex local info, DO NOT call search_web. You MUST call delegate_to_antigravity instead.",
+            "description": "Search the web for simple facts only. If the query requires research or comparisons, call delegate_to_antigravity instead.",
             "parameters": {
                 "type": "OBJECT",
                 "properties": {
@@ -1011,12 +910,13 @@ GEMINI_TOOLS = [{
         },
         {
             "name": "delegate_to_antigravity",
-            "description": "Delegate a complex or heavy task to the Antigravity heavy agent. It will send a persistent notification to HA.",
+            "description": "Delegate a complex, historical, analytical, or external research task to the Antigravity Heavy Agent.",
             "parameters": {
                 "type": "OBJECT",
                 "properties": {
                     "task_description": {"type": "STRING", "description": "Description of the task to delegate."},
-                    "immediate_reply": {"type": "STRING", "description": "A natural, contextual sentence you must speak to the user right now to confirm you are working on it (e.g. 'Έγινε, βάζω υπενθύμιση', 'Μισό λεπτό να ελέγξω'). Must be in the user's language."}
+                    "immediate_reply": {"type": "STRING", "description": "A natural, conversational sentence to speak to the user right now to acknowledge handoff (e.g. 'Το ελέγχω αναλυτικά και θα σε ενημερώσω.'). Must be in Greek."},
+                    "reason_code": {"type": "STRING", "description": "Reason: 'HISTORICAL_ANALYSIS', 'EXTERNAL_RESEARCH', 'ENTITY_NOT_FOUND', 'MULTI_STEP_ANALYSIS', 'LOW_CONFIDENCE', or 'GENERAL_ESCALATION'."}
                 },
                 "required": ["task_description", "immediate_reply"],
             },
@@ -1037,15 +937,17 @@ GEMINI_TOOLS = [{
 
 # Map tool names to implementations
 TOOL_DISPATCH = {
-    "query_database": lambda args: tool_query_database(args.get("query", "")),
     "call_ha_service": lambda args: tool_call_ha_service(
         args.get("domain", ""), args.get("service", ""), args.get("service_data")
     ),
     "get_ha_states": lambda args: tool_get_ha_states(args.get("entity_id", "")),
-    "get_weather_forecast": lambda args: tool_get_weather_forecast(args.get("entity_id", "weather.forecast_home"), args.get("type", "hourly")),
     "search_web": lambda args: tool_search_web(args.get("query", "")),
     "keep_mic_open": lambda args: tool_keep_mic_open(),
-    "delegate_to_antigravity": lambda args: tool_delegate_to_antigravity(args.get("task_description", ""), args.get("immediate_reply", "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο.")),
+    "delegate_to_antigravity": lambda args: tool_delegate_to_antigravity(
+        args.get("task_description", ""),
+        args.get("immediate_reply", "Το ελέγχω αναλυτικά και θα σε ενημερώσω."),
+        args.get("reason_code", REASON_GENERAL_ESCALATION)
+    ),
     "store_memory": lambda args: tool_store_memory(args.get("fact", "")),
 }
 
@@ -1062,18 +964,16 @@ app = FastAPI(title="Antigravity Brain", version="2.0.0")
 
 
 SYSTEM_INSTRUCTION = (
-    "You are the Brain of a smart Home Assistant running on a local server (Fast Agent). "
-    "You have tools to control devices, get current states, check weather forecasts, search the web, and more. "
+    "You are the Light Voice Assistant Brain of Home Assistant (Fast Agent). "
+    "Your primary responsibility is low-latency (< 1.5s), natural Greek conversation, controlling devices, and reporting current entity states. "
     "CRITICAL: Always respond in Greek (Ελληνικά), no matter what. "
     "Be concise and output natural language suitable for Text-to-Speech (TTS). "
     "Do not include markdown, code blocks, or special formatting in your response. "
     "When you ask the user a question, always call the keep_mic_open tool so the microphone stays open for their answer. "
-    "CRITICAL: You have a tool called `delegate_to_antigravity`. The user expects to speak naturally and never be trained on how to talk to you. "
-    "If a question requires historical data, analytics, or complex logic, you MUST call `delegate_to_antigravity`. However, if you can find the current status or location of an entity (like a car, light, or sensor) directly in the data returned by `get_ha_states`, answer immediately yourself! "
-    "For weather forecast or rain queries at home, use the `get_weather_forecast` tool. If the user asks about weather in other locations or external queries, and `search_web` does not return a clear answer on the first try, you MUST call `delegate_to_antigravity`. "
-    "If you try to use `search_web` to answer a question and you cannot find the answer, you MUST call `delegate_to_antigravity` so the Heavy Agent can do a deep search. "
-    "If the user asks to play a specific radio station, FIRST use the `search_radio_browser` tool to find the direct audio stream URL. If you find it, play it using `call_ha_service` on the media player (set media_content_type to 'music' and media_content_id to the stream URL). If you CANNOT find it via `search_radio_browser`, DO NOT use `search_web`. IMMEDIATELY call `delegate_to_antigravity`! "
-    "You MUST NEVER just say you can't do it or apologize with 'δεν μπόρεσα να βρω'. Instead, you MUST automatically call the `delegate_to_antigravity` tool to trigger the Antigravity flow."
+    "CRITICAL ESCALATION POLICY: You have a tool called `delegate_to_antigravity`. "
+    "1. If a query can be answered directly and definitively from current live states returned by `get_ha_states` (e.g. device status, temperatures, lights, car location), answer immediately yourself. "
+    "2. For ANY question requiring historical data (e.g. yesterday, last week, trends, energy consumption over time), complex multi-sensor calculations, external research not in HA states, or if an entity is not found, you MUST IMMEDIATELY call `delegate_to_antigravity`! "
+    "3. Never guess, never attempt repeated blind searches, and NEVER apologize with 'δεν μπόρεσα να βρω'. If you do not have the complete answer immediately in live states, call `delegate_to_antigravity` so the Heavy Agent can solve it."
 )
 
 
@@ -1472,7 +1372,7 @@ async def get_api_status():
     curr_tts_engine, curr_tts_voice = get_tts_config()
     return {
         "status": "ok",
-        "version": "3.2.2",
+        "version": "3.3.0",
         "fast_agent": {
             "engine": fast_agent_engine,
             "model": fast_agent_model,
@@ -1580,7 +1480,7 @@ def health_check():
 
 
 if __name__ == "__main__":
-    print(f"Starting Antigravity Brain v3.2.3")
+    print(f"Starting Antigravity Brain v3.3.0")
     print(f"  Phase 1 (Fast Agent): engine={fast_agent_engine}, model={fast_agent_model}, thinking={fast_agent_thinking}")
     print(f"  Phase 2 (Heavy Agent): engine={heavy_agent_engine}, thinking={heavy_agent_thinking}")
     print(f"  Port: {PORT}")
