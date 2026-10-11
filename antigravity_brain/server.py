@@ -79,11 +79,18 @@ memory_manager.init_db()
 # Model mapping & Normalization
 # ---------------------------------------------------------------------------
 MODEL_MAP = {
-    # Clean option names
+    # Gemini models
     "gemini-3.8-flash": "gemini-3.8-flash",
     "gemini-3.1-pro": "gemini-3.1-pro-preview",
-    "gpt-4o-mini": "gpt-4o-mini",
+    "gemini-2.5-flash": "gemini-2.5-flash",
+    "gemini-2.0-flash": "gemini-2.0-flash",
+
+    # OpenAI modern models
+    "o3-mini": "o3-mini",
     "gpt-4o": "gpt-4o",
+    "gpt-4o-mini": "gpt-4o-mini",
+    "gpt-4.5-preview": "gpt-4.5-preview",
+    "o1": "o1",
     "gpt-5": "gpt-5",
     "o3": "o3",
 
@@ -1242,7 +1249,7 @@ def _execute_openai_chat(messages, system_prompt, model_name, token, user_prompt
     }
 
     req_model = model_name
-    if not req_model or "flash" in req_model.lower() or "pro" in req_model.lower():
+    if not req_model or "flash" in req_model.lower() or "gemini" in req_model.lower():
         req_model = "gpt-4o-mini"
 
     for round_idx in range(5):
@@ -1252,6 +1259,9 @@ def _execute_openai_chat(messages, system_prompt, model_name, token, user_prompt
             "tools": tools,
             "tool_choice": "auto"
         }
+        if "o3-mini" in req_model or "o1" in req_model:
+            if fast_agent_thinking in ["low", "medium", "high"]:
+                payload["reasoning_effort"] = fast_agent_thinking
         res = http_requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=20)
         if res.status_code != 200:
             raise Exception(f"OpenAI API error {res.status_code}: {res.text}")
@@ -1376,9 +1386,21 @@ async def chat_completions(request: Request):
 
 
 
-    try:
-        if fast_agent_engine == "openai_api":
-            content = _execute_openai_chat(messages, final_system, fast_agent_model, fast_agent_api_key, user_text)
+        # Smart engine auto-routing: never fails even if user picked mismatched engine/model
+        effective_model = req_model or fast_agent_model
+        is_openai_model = any(effective_model.startswith(p) for p in ["gpt-", "o1", "o3", "chatgpt"])
+        is_gemini_model = any(effective_model.startswith(p) for p in ["gemini-", "3.8", "3.1"])
+
+        use_openai = False
+        if is_openai_model:
+            use_openai = True
+        elif is_gemini_model:
+            use_openai = False
+        else:
+            use_openai = (fast_agent_engine == "openai_api")
+
+        if use_openai:
+            content = _execute_openai_chat(messages, final_system, effective_model, fast_agent_api_key, user_text)
         else:
             config = {
                 "system_instruction": final_system,
@@ -1501,7 +1523,7 @@ async def get_api_status():
     curr_tts_engine, curr_tts_voice = get_tts_config()
     return {
         "status": "ok",
-        "version": "3.3.3",
+        "version": "3.3.4",
         "fast_agent": {
             "engine": fast_agent_engine,
             "model": fast_agent_model,
@@ -1521,6 +1543,37 @@ async def get_api_status():
         },
         "recent_tasks": list(recent_tasks)
     }
+
+
+@app.post("/api/settings/fast-agent")
+async def post_fast_agent_settings(request: Request):
+    """Save Fast Agent engine, model, and thinking settings from Web Dashboard."""
+    global fast_agent_engine, fast_agent_model, fast_agent_thinking
+    data = await request.json()
+    engine = data.get("engine", fast_agent_engine)
+    model = _normalize_model_option(data.get("model", fast_agent_model), fast_agent_model)
+    thinking = data.get("thinking", fast_agent_thinking)
+    
+    opts = {}
+    if os.path.exists(OPTIONS_PATH):
+        try:
+            with open(OPTIONS_PATH, "r") as f:
+                opts = json.load(f)
+        except Exception:
+            pass
+    opts["fast_agent_engine"] = engine
+    opts["fast_agent_model"] = model
+    opts["fast_agent_thinking"] = thinking
+    try:
+        with open(OPTIONS_PATH, "w") as f:
+            json.dump(opts, f, indent=2)
+        fast_agent_engine = engine
+        fast_agent_model = model
+        fast_agent_thinking = thinking
+        print(f"[Settings] Saved Fast Agent config: engine={engine}, model={model}, thinking={thinking}", flush=True)
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+    return {"status": "ok", "engine": engine, "model": model, "thinking": thinking}
 
 
 @app.post("/api/settings/tts")
@@ -1609,7 +1662,7 @@ def health_check():
 
 
 if __name__ == "__main__":
-    print(f"Starting Antigravity Brain v3.3.3")
+    print(f"Starting Antigravity Brain v3.3.4")
     print(f"  Phase 1 (Fast Agent): engine={fast_agent_engine}, model={fast_agent_model}, thinking={fast_agent_thinking}")
     print(f"  Phase 2 (Heavy Agent): engine={heavy_agent_engine}, thinking={heavy_agent_thinking}")
     print(f"  Port: {PORT}")

@@ -1,6 +1,6 @@
 name: "Antigravity Brain"
 description: "Smart Voice Assistant Brain powered by Codex, Antigravity, and Gemini with two-phase response"
-version: "3.3.3"
+version: "3.3.4"
 slug: "antigravity_brain"
 init: true
 arch:
@@ -42,12 +42,12 @@ schema:
   api_port: int
 
   fast_agent_engine: list(gemini_api|openai_api)
-  fast_agent_model: list(gemini-3.8-flash|gemini-3.1-pro|gpt-4o-mini|gpt-4o)
+  fast_agent_model: list(gemini-3.8-flash|gemini-3.1-pro|gemini-2.5-flash|o3-mini|gpt-4o|gpt-4o-mini|gpt-4.5-preview|o1)
   fast_agent_thinking: list(none|low|medium|high)
   fast_agent_api_key: password?
 
   heavy_agent_engine: list(codex_fallback|codex_only|antigravity_only|gemini_legacy)
-  heavy_agent_model: list(auto|gpt-5|o3|gpt-4o|gemini-3.1-pro)
+  heavy_agent_model: list(auto|gpt-5|o3|o3-mini|gpt-4o|gpt-4.5-preview|gemini-3.1-pro)
   heavy_agent_thinking: list(low|medium|high)
 
   tts_engine: list(tts.google_cloud|tts.edge_tts_2|tts.openai_tts_openai|tts.piper|tts.google_ai_tts)?

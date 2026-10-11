@@ -219,6 +219,44 @@ def get_dashboard_html() -> str:
       </div>
     </div>
 
+    <!-- SECTION: FAST AGENT MODEL & ENGINE SETTINGS -->
+    <div style="margin-bottom: 24px;">
+      <div class="section-title">
+        <span>⚡ Ρυθμίσεις Fast Agent (Μηχανή &amp; Μοντέλο Άμεσης Απόκρισης)</span>
+        <span style="font-size: 12px; font-weight: normal; color: var(--text-muted);">Δυναμική επιλογή μοντέλου ανάλογα με τη μηχανή για αποφυγή λαθών</span>
+      </div>
+      <div class="card">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; align-items: end;">
+          <div>
+            <label style="display: block; font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px;">Μηχανή (Fast Agent Engine):</label>
+            <select id="fast-engine-select" class="input-field" style="margin: 0;" onchange="onFastEngineChange()">
+              <option value="gemini_api">Google Gemini API</option>
+              <option value="openai_api">OpenAI API</option>
+            </select>
+          </div>
+          <div>
+            <label style="display: block; font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px;">Μοντέλο (Dynamic Model Selector):</label>
+            <select id="fast-model-select" class="input-field" style="margin: 0;">
+              <!-- Dynamically populated based on selected engine -->
+            </select>
+          </div>
+          <div>
+            <label style="display: block; font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px;">Επίπεδο Σκέψης (Thinking / Reasoning):</label>
+            <select id="fast-thinking-select" class="input-field" style="margin: 0;">
+              <option value="none">None (Χωρίς Reasoning - Άμεσο)</option>
+              <option value="low">Low (Χαμηλό Reasoning)</option>
+              <option value="medium">Medium (Μέτριο Reasoning)</option>
+              <option value="high">High (Μέγιστο Reasoning)</option>
+            </select>
+          </div>
+          <div>
+            <button class="btn btn-primary" style="width: 100%; height: 42px;" onclick="saveFastAgentSettings()">💾 Αποθήκευση Fast Agent</button>
+          </div>
+        </div>
+        <p id="fast-save-msg" style="font-size: 12px; color: var(--success); margin-top: 10px; display: none;">✅ Οι ρυθμίσεις του Fast Agent αποθηκεύτηκαν επιτυχώς!</p>
+      </div>
+    </div>
+
     <!-- SECTION: TTS VOICE OUTPUT SETTINGS -->
     <div style="margin-bottom: 24px;">
       <div class="section-title">
@@ -271,6 +309,7 @@ def get_dashboard_html() -> str:
     let codexRemainingSec = 0;
     let agyRemainingSec = 0;
     let ttsLoaded = false;
+    let fastAgentLoaded = false;
 
     async function fetchStatus() {
       if (document.hidden) return;
@@ -278,7 +317,15 @@ def get_dashboard_html() -> str:
         const res = await fetch("api/status");
         if (!res.ok) return;
         const data = await res.json();
-        
+
+        // Fast Agent Settings UI prefill
+        if (data.fast_agent && !fastAgentLoaded) {
+          if (data.fast_agent.engine) document.getElementById("fast-engine-select").value = data.fast_agent.engine;
+          populateFastModels(data.fast_agent.engine || "gemini_api", data.fast_agent.model || "");
+          if (data.fast_agent.thinking) document.getElementById("fast-thinking-select").value = data.fast_agent.thinking;
+          fastAgentLoaded = true;
+        }
+
         // TTS Settings UI prefill
         if (data.tts && !ttsLoaded) {
           if (data.tts.engine) document.getElementById("tts-engine-select").value = data.tts.engine;
@@ -527,6 +574,72 @@ def get_dashboard_html() -> str:
         updateAgyTimerDisplay();
       }
     }, 1000);
+
+    // Fast Agent Controls: Dynamic Models Mapping
+    const FAST_MODELS_MAP = {
+      "gemini_api": [
+        { id: "gemini-3.8-flash", name: "⚡ gemini-3.8-flash (Προτεινόμενο - Ταχύτατο)" },
+        { id: "gemini-3.1-pro", name: "🧠 gemini-3.1-pro (Προηγμένη Συλλογιστική)" },
+        { id: "gemini-2.5-flash", name: "gemini-2.5-flash (Σταθερό Flash)" },
+        { id: "gemini-2.0-flash", name: "gemini-2.0-flash (Γενικής Χρήσης)" }
+      ],
+      "openai_api": [
+        { id: "o3-mini", name: "🚀 o3-mini (Νέο State-of-the-Art Fast Reasoning)" },
+        { id: "gpt-4o", name: "🌟 gpt-4o (Flagship Omni - Πολυτροπικό)" },
+        { id: "gpt-4o-mini", name: "⚡ gpt-4o-mini (Ελαφρύ & Ταχύτατο)" },
+        { id: "gpt-4.5-preview", name: "🎨 gpt-4.5-preview (Μεγάλο Δημιουργικό Flagship)" },
+        { id: "o1", name: "🧠 o1 (Deep Reasoning Model)" }
+      ]
+    };
+
+    function onFastEngineChange() {
+      const eng = document.getElementById("fast-engine-select").value;
+      populateFastModels(eng);
+    }
+
+    function populateFastModels(engine, selectedModel = "") {
+      const modelSelect = document.getElementById("fast-model-select");
+      if (!modelSelect) return;
+      modelSelect.innerHTML = "";
+      const models = FAST_MODELS_MAP[engine] || [];
+      let found = false;
+      models.forEach(m => {
+        const opt = document.createElement("option");
+        opt.value = m.id;
+        opt.textContent = m.name;
+        if (selectedModel && m.id === selectedModel) {
+          opt.selected = true;
+          found = true;
+        }
+        modelSelect.appendChild(opt);
+      });
+      if (!found && models.length > 0) {
+        modelSelect.selectedIndex = 0;
+      }
+    }
+
+    async function saveFastAgentSettings() {
+      const engine = document.getElementById("fast-engine-select").value;
+      const model = document.getElementById("fast-model-select").value;
+      const thinking = document.getElementById("fast-thinking-select").value;
+      try {
+        const res = await fetch("api/settings/fast-agent", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ engine, model, thinking })
+        });
+        if (res.ok) {
+          const msg = document.getElementById("fast-save-msg");
+          if (msg) {
+            msg.style.display = "block";
+            setTimeout(() => { msg.style.display = "none"; }, 4000);
+          }
+          fetchStatus();
+        }
+      } catch (err) {
+        alert("Σφάλμα αποθήκευσης Fast Agent: " + err);
+      }
+    }
 
     // TTS Controls: Dynamic Voice Mapping
     const TTS_VOICE_MAP = {
