@@ -346,7 +346,7 @@ def _execute_codex_cli(task_description: str, thinking_level: str = "high") -> t
         return "", True
 
     print(f"[Heavy Agent - Codex] Running Codex CLI (thinking: {thinking_level}) for: {task_description[:80]}...", flush=True)
-    cmd = [codex_bin, "exec", "--ask-for-approval", "never", task_description]
+    cmd = [codex_bin, "exec", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", task_description]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         combined_output = (proc.stdout or "") + "\n" + (proc.stderr or "")
@@ -374,6 +374,43 @@ def _execute_codex_cli(task_description: str, thinking_level: str = "high") -> t
     except Exception as e:
         print(f"[Heavy Agent - Codex] Execution failed: {e}", flush=True)
         return str(e), True
+
+
+def _check_codex_auth_on_startup():
+    """Check Codex login status on addon startup and print device code if not logged in."""
+    import shutil
+    import threading
+    time.sleep(2)
+    codex_bin = None
+    for cand in ["./codex", "/usr/src/app/codex", "codex"]:
+        if os.path.exists(cand) or shutil.which(cand):
+            codex_bin = cand
+            break
+    if not codex_bin:
+        return
+    try:
+        res = subprocess.run([codex_bin, "login", "status"], capture_output=True, text=True, timeout=10)
+        combined = (res.stdout + res.stderr).lower()
+        if "not logged in" in combined:
+            print("\n" + "=" * 60, flush=True)
+            print("⚠️ CODEX AUTHENTICATION REQUIRED ON STARTUP! ⚠️", flush=True)
+            print("Requesting device authorization code...", flush=True)
+            print("=" * 60 + "\n", flush=True)
+            proc = subprocess.Popen([codex_bin, "login", "--device-auth"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            while True:
+                line = proc.stdout.readline()
+                if not line:
+                    break
+                print(line, end='', flush=True)
+                if "Continue only if you started this login" in line:
+                    break
+        else:
+            print("[Startup] Codex CLI is authenticated and ready!", flush=True)
+    except Exception as e:
+        print(f"[Startup] Codex auth check error: {e}", flush=True)
+
+import threading
+threading.Thread(target=_check_codex_auth_on_startup, daemon=True).start()
 
 
 def _execute_antigravity_cli(task_description: str, thinking_level: str = "high") -> tuple[str, bool]:
