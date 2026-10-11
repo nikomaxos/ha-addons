@@ -345,10 +345,32 @@ def _execute_codex_cli(task_description: str, thinking_level: str = "high") -> t
         print("[Heavy Agent - Codex] Codex binary not found in container, falling back.", flush=True)
         return "", True
 
+    out_file = "/tmp/codex_out.txt"
+    if os.path.exists(out_file):
+        try:
+            os.remove(out_file)
+        except Exception:
+            pass
+
+    full_prompt = (
+        f"You are the Brain of Home Assistant. Solve this task thoroughly:\n{task_description}\n\n"
+        "CRITICAL REQUIREMENTS:\n"
+        "1. ALL RESPONSES MUST BE IN GREEK (Ελληνικά).\n"
+        "2. Output your final answer STRICTLY as a JSON object containing TWO fields:\n"
+        "   - `markdown_response`: Full detailed analysis with formatting for UI.\n"
+        "   - `spoken_response`: Clear, conversational, spoken Greek WITHOUT any markdown asterisks, hashes, or bullet points, suitable for text-to-speech."
+    )
+
     print(f"[Heavy Agent - Codex] Running Codex CLI (thinking: {thinking_level}) for: {task_description[:80]}...", flush=True)
-    cmd = [codex_bin, "exec", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", task_description]
+    cmd = [
+        codex_bin, "exec",
+        "--skip-git-repo-check",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "-o", out_file,
+        full_prompt
+    ]
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        proc = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120)
         combined_output = (proc.stdout or "") + "\n" + (proc.stderr or "")
 
         url_match = re.search(r'(https://[^\s]+(?:auth|device|login)[^\s]+)', combined_output)
@@ -367,7 +389,12 @@ def _execute_codex_cli(task_description: str, thinking_level: str = "high") -> t
             print(f"[Heavy Agent - Codex] Error/non-zero return code ({proc.returncode}): {proc.stderr[:200]}", flush=True)
             return combined_output, True
 
-        return proc.stdout.strip(), False
+        clean_out = ""
+        if os.path.exists(out_file):
+            with open(out_file, "r", encoding="utf-8", errors="replace") as f:
+                clean_out = f.read().strip()
+
+        return clean_out or proc.stdout.strip(), False
     except subprocess.TimeoutExpired:
         print("[Heavy Agent - Codex] Timed out after 120s.", flush=True)
         return "Codex process timed out.", True
