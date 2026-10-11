@@ -58,11 +58,9 @@ SUPERVISOR_URL = "http://supervisor/core/api"
 # ---------------------------------------------------------------------------
 
 MODEL_MAP = {
-
-    "3.8 flash high": "gemini-3.5-flash",
-
+    "3.8 flash high": "gemini-3.8-flash",
     "3.1 pro high": "gemini-3.1-pro-preview",
-
+    "antigravity": "antigravity-preview-latest",
 }
 
 
@@ -545,34 +543,36 @@ def _run_heavy_agent(task_description: str):
 
     # 1. Attempt Codex CLI if configured
     if heavy_agent_engine in ["codex_fallback", "codex_only"]:
-        print(f"[Heavy Agent] Evaluating task with Codex CLI (thinking: {heavy_agent_thinking})...")
+        print(f"[Heavy Agent] Evaluating task with Codex CLI (thinking: {heavy_agent_thinking})...", flush=True)
         codex_out, limit_or_error = _execute_codex_cli(task_description, heavy_agent_thinking)
         if not limit_or_error and codex_out:
             final_result = codex_out
         elif limit_or_error:
-            print("[Heavy Agent] Codex CLI hit limit, quota, or is unavailable. Proceeding to fallback...")
+            print("[Heavy Agent] Codex CLI hit limit, quota, or is unavailable. Proceeding to fallback...", flush=True)
 
     # 2. Attempt Antigravity CLI if configured or after Codex limit
     if not final_result and heavy_agent_engine in ["codex_fallback", "antigravity_only"]:
-        print(f"[Heavy Agent] Evaluating task with Antigravity CLI (thinking: {heavy_agent_thinking})...")
+        print(f"[Heavy Agent] Evaluating task with Antigravity CLI (thinking: {heavy_agent_thinking})...", flush=True)
         agy_out, limit_or_error = _execute_antigravity_cli(task_description, heavy_agent_thinking)
         if not limit_or_error and agy_out:
             final_result = agy_out
         elif limit_or_error:
-            print("[Heavy Agent] Antigravity CLI hit limit or unavailable. Falling back to Gemini Pro agent...")
+            print("[Heavy Agent] Antigravity CLI hit limit or unavailable. Falling back to Gemini Pro agent...", flush=True)
 
     # 3. Fallback to Gemini Pro Agent if CLIs didn't produce a final answer
     if not final_result:
+        fallback_model = MODEL_MAP.get(heavy_agent_model, "gemini-3.1-pro-preview") if heavy_agent_model != "auto" else "gemini-3.1-pro-preview"
+        print(f"[Heavy Agent] Running fallback model: {fallback_model}...", flush=True)
         try:
             MAX_STEPS = 15
             for step in range(MAX_STEPS):
-                print(f"[Heavy Agent] Step {step+1}: Calling generate_content...")
+                print(f"[Heavy Agent] Step {step+1}: Calling generate_content...", flush=True)
                 response = client.models.generate_content(
-                    model=MODEL_MAP.get(selected_model, selected_model),
+                    model=fallback_model,
                     contents=chat_history,
                     config=config
                 )
-                print(f"[Heavy Agent] Step {step+1}: generate_content returned.")
+                print(f"[Heavy Agent] Step {step+1}: generate_content returned.", flush=True)
 
                 candidate = response.candidates[0]
                 function_calls = []
@@ -589,7 +589,7 @@ def _run_heavy_agent(task_description: str):
                 for fc in function_calls:
                     fn_name = fc.name
                     fn_args = dict(fc.args) if fc.args else {}
-                    print(f"[Heavy Agent Tool Call] {fn_name}({json.dumps(fn_args, ensure_ascii=False)[:200]})")
+                    print(f"[Heavy Agent Tool Call] {fn_name}({json.dumps(fn_args, ensure_ascii=False)[:200]})", flush=True)
 
                     handler = heavy_dispatch.get(fn_name)
                     if handler:
@@ -600,7 +600,7 @@ def _run_heavy_agent(task_description: str):
                     else:
                         res = f"Unknown tool: {fn_name}"
 
-                    print(f"[Heavy Agent Tool Result] {str(res)[:200]}")
+                    print(f"[Heavy Agent Tool Result] {str(res)[:200]}", flush=True)
 
                     function_responses.append({
                         "function_response": {
@@ -621,7 +621,7 @@ def _run_heavy_agent(task_description: str):
         except Exception as e:
             final_result = f"Heavy Agent encountered a fatal error: {e}"
 
-    print(f"[Heavy Agent] Finished. Result: {final_result}")
+    print(f"[Heavy Agent] Finished. Result: {final_result}", flush=True)
     
     # Parse the final JSON response
     markdown_response = final_result
