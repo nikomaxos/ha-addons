@@ -1,4 +1,36 @@
 import os
+import sys
+import datetime
+
+class TimestampedStream:
+    def __init__(self, stream):
+        self.stream = stream
+        self.at_line_start = True
+
+    def write(self, data):
+        if not data:
+            return
+        lines = data.split('\n')
+        for i, line in enumerate(lines):
+            if i > 0:
+                self.stream.write('\n')
+                self.at_line_start = True
+            if line:
+                if self.at_line_start:
+                    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    self.stream.write(f"[{now}] ")
+                    self.at_line_start = False
+                self.stream.write(line)
+
+    def flush(self):
+        self.stream.flush()
+
+    def isatty(self):
+        return getattr(self.stream, 'isatty', lambda: False)()
+
+sys.stdout = TimestampedStream(sys.stdout)
+sys.stderr = TimestampedStream(sys.stderr)
+
 import json
 import time
 import uuid
@@ -10,7 +42,6 @@ import requests as http_requests
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, HTMLResponse
 from collections import deque
-import datetime
 import memory_manager
 from auth_manager import CodexAuthManager, AntigravityAuthManager
 from dashboard_html import get_dashboard_html
@@ -57,6 +88,49 @@ SUPERVISOR_URL = "http://supervisor/core/api"
 codex_mgr = CodexAuthManager(supervisor_url=SUPERVISOR_URL, get_supervisor_token_fn=lambda: SUPERVISOR_TOKEN)
 agy_mgr = AntigravityAuthManager(supervisor_url=SUPERVISOR_URL, get_supervisor_token_fn=lambda: SUPERVISOR_TOKEN)
 recent_tasks = deque(maxlen=20)
+
+def check_reauth_flags():
+    """Check if reauth was requested via Add-on Settings tab (options.json)."""
+    if not os.path.exists(OPTIONS_PATH):
+        return
+    try:
+        with open(OPTIONS_PATH, "r") as f:
+            opts = json.load(f)
+        needs_save = False
+        if opts.get("reauth_codex"):
+            print("[Settings Tab] 'reauth_codex' enabled! Triggering Codex CLI auth flow...", flush=True)
+            codex_mgr.start_auth_flow(force=True)
+            opts["reauth_codex"] = False
+            needs_save = True
+
+        if opts.get("reauth_antigravity"):
+            print("[Settings Tab] 'reauth_antigravity' enabled! Triggering Antigravity CLI auth flow...", flush=True)
+            agy_mgr.start_auth_flow(force=True)
+            opts["reauth_antigravity"] = False
+            needs_save = True
+
+        if needs_save:
+            with open(OPTIONS_PATH, "w") as f:
+                json.dump(opts, f, indent=2)
+    except Exception as e:
+        print(f"[Settings Tab] Error checking reauth flags: {e}", flush=True)
+
+def _options_watcher():
+    """Background thread watching for options changes."""
+    last_mtime = 0
+    while True:
+        try:
+            if os.path.exists(OPTIONS_PATH):
+                mtime = os.path.getmtime(OPTIONS_PATH)
+                if mtime != last_mtime:
+                    last_mtime = mtime
+                    check_reauth_flags()
+        except Exception:
+            pass
+        time.sleep(3)
+
+threading.Thread(target=_options_watcher, daemon=True).start()
+check_reauth_flags()
 
 
 

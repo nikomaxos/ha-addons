@@ -1,6 +1,6 @@
 name: "Antigravity Brain"
 description: "Smart Voice Assistant Brain powered by Codex, Antigravity, and Gemini with two-phase response"
-version: "3.1.2"
+version: "3.2.0"
 slug: "antigravity_brain"
 init: true
 arch:
@@ -10,6 +10,7 @@ hassio_api: true
 homeassistant_api: true
 ingress: true
 ingress_port: 8000
+ingress_panel: true
 panel_icon: mdi:brain
 panel_title: "Antigravity Brain"
 map:
@@ -31,6 +32,10 @@ options:
   heavy_agent_engine: "codex_fallback"
   heavy_agent_model: "auto"
   heavy_agent_thinking: "high"
+
+  # Re-authentication controls (toggle ON and click Save to trigger new auth flow)
+  reauth_codex: false
+  reauth_antigravity: false
 schema:
   api_port: int
   gemini_api_key: str?
@@ -44,5 +49,8 @@ schema:
   heavy_agent_engine: list(codex_fallback|codex_only|antigravity_only|gemini_legacy)
   heavy_agent_model: str
   heavy_agent_thinking: list(low|medium|high)
+
+  reauth_codex: bool?
+  reauth_antigravity: bool?
 ports:
   8000/tcp: 8000

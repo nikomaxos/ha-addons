@@ -290,29 +290,55 @@ def get_dashboard_html() -> str:
         const agyPendingBox = document.getElementById("agy-pending-box");
         const agyAuthLink = document.getElementById("agy-auth-link");
 
-        if (agy.auth_state === "pending" && agy.auth_url) {
+        if (agy.auth_state === "pending") {
           agyBadge.className = "badge badge-warning";
           agyBadge.textContent = "Εκκρεμεί Σύνδεση";
-          agyDesc.textContent = "Απαιτείται σύνδεση Google. Ανοίξτε τη σελίδα έγκρισης και επικολλήστε τον κωδικό:";
           agyPendingBox.style.display = "block";
-          agyAuthLink.href = agy.auth_url;
-          agyRemainingSec = agy.remaining_seconds || 0;
+          if (agy.auth_url) {
+            agyDesc.textContent = "Απαιτείται σύνδεση Google. Ανοίξτε τη σελίδα έγκρισης και επικολλήστε τον κωδικό:";
+            agyAuthLink.href = agy.auth_url;
+            agyAuthLink.style.display = "inline-block";
+          } else {
+            agyDesc.textContent = "⏳ Δημιουργία συνδέσμου Google OAuth... Παρακαλώ περιμένετε 2 δευτερόλεπτα.";
+            agyAuthLink.style.display = "none";
+          }
+          agyRemainingSec = agy.remaining_seconds || 65;
           updateAgyTimerDisplay();
+          const btnAgy = document.getElementById("btn-agy-trigger");
+          if (btnAgy) {
+            btnAgy.className = "btn btn-outline";
+            btnAgy.textContent = "🔄 Επανεκκίνηση Συνεδρίας";
+          }
         } else if (agy.auth_state === "expired") {
           agyBadge.className = "badge badge-warning";
           agyBadge.textContent = "Σύνδεση Έληξε";
-          agyDesc.textContent = "⚠️ Η προηγούμενη σύνδεση έληξε. Πατήστε το κουμπί για νέα σύνδεση Google.";
+          agyDesc.textContent = "⚠️ Η προηγούμενη σύνδεση έληξε (όριο 60 δευτερολέπτων). Πατήστε το παρακάτω κουμπί για άμεση έναρξη νέας σύνδεσης:";
           agyPendingBox.style.display = "none";
+          const btnAgy = document.getElementById("btn-agy-trigger");
+          if (btnAgy) {
+            btnAgy.className = "btn btn-warning";
+            btnAgy.textContent = "🔄 Έναρξη Νέας Σύνδεσης Google";
+          }
         } else if (agy.authenticated || agy.auth_state === "authenticated") {
           agyBadge.className = "badge badge-success";
           agyBadge.textContent = "Συνδεδεμένο";
           agyDesc.textContent = "✅ Συνδεδεμένο επιτυχώς με Google Account (Gemini 3.8 / Pro).";
           agyPendingBox.style.display = "none";
+          const btnAgy = document.getElementById("btn-agy-trigger");
+          if (btnAgy) {
+            btnAgy.className = "btn btn-outline";
+            btnAgy.textContent = "🔑 Επανασύνδεση με Google";
+          }
         } else {
           agyBadge.className = "badge badge-error";
           agyBadge.textContent = "Μη Συνδεδεμένο";
           agyDesc.textContent = "Αποσυνδεδεμένο. Πατήστε το κουμπί για έναρξη διαδικασίας σύνδεσης με Google.";
           agyPendingBox.style.display = "none";
+          const btnAgy = document.getElementById("btn-agy-trigger");
+          if (btnAgy) {
+            btnAgy.className = "btn btn-primary";
+            btnAgy.textContent = "🔑 Σύνδεση με Google";
+          }
         }
 
         // Recent Tasks
@@ -381,12 +407,16 @@ def get_dashboard_html() -> str:
         const btn = document.getElementById("btn-agy-trigger");
         if (btn) { btn.disabled = true; btn.textContent = "⏳ Εκκίνηση..."; }
         await fetch("api/auth/antigravity/start", { method: "POST" });
-        await fetchStatus();
+        showToast("Εκκινήθηκε η σύνδεση Google Antigravity!");
+        for (let i = 0; i < 4; i++) {
+          await new Promise(r => setTimeout(r, 800));
+          await fetchStatus();
+        }
       } catch (e) {
         alert("Σφάλμα έναρξης σύνδεσης Antigravity: " + e);
       } finally {
         const btn = document.getElementById("btn-agy-trigger");
-        if (btn) { btn.disabled = false; btn.textContent = "🔑 Σύνδεση με Google"; }
+        if (btn) { btn.disabled = false; }
       }
     }
 

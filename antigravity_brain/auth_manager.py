@@ -1,4 +1,38 @@
 import os
+import sys
+import datetime
+
+class TimestampedStream:
+    def __init__(self, stream):
+        self.stream = stream
+        self.at_line_start = True
+
+    def write(self, data):
+        if not data:
+            return
+        lines = data.split('\n')
+        for i, line in enumerate(lines):
+            if i > 0:
+                self.stream.write('\n')
+                self.at_line_start = True
+            if line:
+                if self.at_line_start:
+                    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    self.stream.write(f"[{now}] ")
+                    self.at_line_start = False
+                self.stream.write(line)
+
+    def flush(self):
+        self.stream.flush()
+
+    def isatty(self):
+        return getattr(self.stream, 'isatty', lambda: False)()
+
+if not isinstance(sys.stdout, TimestampedStream):
+    sys.stdout = TimestampedStream(sys.stdout)
+if not isinstance(sys.stderr, TimestampedStream):
+    sys.stderr = TimestampedStream(sys.stderr)
+
 import re
 import time
 import subprocess
