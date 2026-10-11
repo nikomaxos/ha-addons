@@ -41,8 +41,16 @@ import uuid
 import subprocess
 import re
 import threading
+import logging
 import uvicorn
 import requests as http_requests
+
+class EndpointFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return "/api/status" not in msg and "/health" not in msg
+
+logging.getLogger("uvicorn.access").addFilter(EndpointFilter())
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, HTMLResponse
 from collections import deque

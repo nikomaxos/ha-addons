@@ -1,6 +1,6 @@
 name: "Antigravity Brain"
 description: "Smart Voice Assistant Brain powered by Codex, Antigravity, and Gemini with two-phase response"
-version: "3.2.0"
+version: "3.2.1"
 slug: "antigravity_brain"
 init: true
 arch:
@@ -13,6 +13,7 @@ ingress_port: 8000
 ingress_panel: true
 panel_icon: mdi:brain
 panel_title: "Antigravity Brain"
+webui: "http://[HOST]:[PORT:8000]"
 map:
   - homeassistant_config:rw
   - share:rw

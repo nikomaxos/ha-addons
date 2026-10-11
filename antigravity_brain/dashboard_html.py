@@ -239,6 +239,7 @@ def get_dashboard_html() -> str:
     let agyRemainingSec = 0;
 
     async function fetchStatus() {
+      if (document.hidden) return;
       try {
         const res = await fetch("api/status");
         if (!res.ok) return;
@@ -488,7 +489,10 @@ def get_dashboard_html() -> str:
 
     // Initial fetch and auto-refresh loop
     fetchStatus();
-    setInterval(fetchStatus, 3000);
+    setInterval(fetchStatus, 4000);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) fetchStatus();
+    });
   </script>
 </body>
 </html>"""
