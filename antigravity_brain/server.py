@@ -353,12 +353,25 @@ def _execute_codex_cli(task_description: str, thinking_level: str = "high") -> t
             pass
 
     full_prompt = (
-        f"You are the Brain of Home Assistant. Solve this task thoroughly:\n{task_description}\n\n"
-        "CRITICAL REQUIREMENTS:\n"
-        "1. ALL RESPONSES MUST BE IN GREEK (Ελληνικά).\n"
-        "2. Output your final answer STRICTLY as a JSON object containing TWO fields:\n"
-        "   - `markdown_response`: Full detailed analysis with formatting for UI.\n"
-        "   - `spoken_response`: Clear, conversational, spoken Greek WITHOUT any markdown asterisks, hashes, or bullet points, suitable for text-to-speech."
+        f"You are the autonomous Antigravity Heavy Brain of Home Assistant, running directly inside the container as a powerful terminal AI agent.\n\n"
+        f"TASK TO SOLVE:\n{task_description}\n\n"
+        "CAPABILITIES & TOOLS AVAILABLE IN YOUR SHELL:\n"
+        "You have full terminal access and can execute any bash command to fetch data, calculate, and solve the task:\n"
+        "1. Home Assistant REST API (via Supervisor):\n"
+        "   - Query entity states: curl -s -H \"Authorization: Bearer $SUPERVISOR_TOKEN\" http://supervisor/core/api/states | jq .\n"
+        "   - Query specific entity: curl -s -H \"Authorization: Bearer $SUPERVISOR_TOKEN\" http://supervisor/core/api/states/<entity_id> | jq .\n"
+        "   - Query history: curl -s -H \"Authorization: Bearer $SUPERVISOR_TOKEN\" 'http://supervisor/core/api/history/period/<ISO_TIMESTAMP>?filter_entity_id=<entity_id>' | jq .\n"
+        "2. MariaDB Database (Full historical sensor data, long-term statistics & energy records):\n"
+        "   - Execute SQL: mysql -h core-mariadb -u homeassistant -pRene1122 homeassistant -e \"SELECT ...\"\n"
+        "   - Tables: statistics_meta (metadata_id, statistic_id, unit_of_measurement), statistics (metadata_id, start_ts, state, sum, min, max, mean), statistics_short_term, states (entity_id, state, last_updated_ts), states_meta.\n"
+        "3. Web Search & Data Processing:\n"
+        "   - Use python3 with urllib or ddgs, curl, jq, etc., to search the web or process data.\n\n"
+        "CRITICAL INSTRUCTIONS:\n"
+        "1. NEVER give up or say you lack access to Home Assistant! Use your shell tools to inspect states, query the database, calculate the metrics, and deliver the answer.\n"
+        "2. ALL RESPONSES MUST BE IN GREEK (Ελληνικά).\n"
+        "3. Output your final answer STRICTLY as a JSON object containing TWO fields:\n"
+        "   - `markdown_response`: Full detailed analysis with formatting, numbers, tables or bullet points for the Home Assistant UI notification.\n"
+        "   - `spoken_response`: Clear, natural, conversational spoken Greek WITHOUT asterisks, markdown, hashes, or technical symbols, suitable for HD text-to-speech."
     )
 
     print(f"[Heavy Agent - Codex] Running Codex CLI (thinking: {thinking_level}) for: {task_description[:80]}...", flush=True)
@@ -370,7 +383,7 @@ def _execute_codex_cli(task_description: str, thinking_level: str = "high") -> t
         full_prompt
     ]
     try:
-        proc = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120)
+        proc = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=180)
         combined_output = (proc.stdout or "") + "\n" + (proc.stderr or "")
 
         url_match = re.search(r'(https://[^\s]+(?:auth|device|login)[^\s]+)', combined_output)
@@ -453,10 +466,32 @@ def _execute_antigravity_cli(task_description: str, thinking_level: str = "high"
         print("[Heavy Agent - Antigravity] Antigravity binary not found in container.", flush=True)
         return "", True
 
+    full_prompt = (
+        f"You are the autonomous Antigravity Heavy Brain of Home Assistant, running directly inside the container as a powerful terminal AI agent.\n\n"
+        f"TASK TO SOLVE:\n{task_description}\n\n"
+        "CAPABILITIES & TOOLS AVAILABLE IN YOUR SHELL:\n"
+        "You have full terminal access and can execute any bash command to fetch data, calculate, and solve the task:\n"
+        "1. Home Assistant REST API (via Supervisor):\n"
+        "   - Query entity states: curl -s -H \"Authorization: Bearer $SUPERVISOR_TOKEN\" http://supervisor/core/api/states | jq .\n"
+        "   - Query specific entity: curl -s -H \"Authorization: Bearer $SUPERVISOR_TOKEN\" http://supervisor/core/api/states/<entity_id> | jq .\n"
+        "   - Query history: curl -s -H \"Authorization: Bearer $SUPERVISOR_TOKEN\" 'http://supervisor/core/api/history/period/<ISO_TIMESTAMP>?filter_entity_id=<entity_id>' | jq .\n"
+        "2. MariaDB Database (Full historical sensor data, long-term statistics & energy records):\n"
+        "   - Execute SQL: mysql -h core-mariadb -u homeassistant -pRene1122 homeassistant -e \"SELECT ...\"\n"
+        "   - Tables: statistics_meta (metadata_id, statistic_id, unit_of_measurement), statistics (metadata_id, start_ts, state, sum, min, max, mean), statistics_short_term, states (entity_id, state, last_updated_ts), states_meta.\n"
+        "3. Web Search & Data Processing:\n"
+        "   - Use python3 with urllib or ddgs, curl, jq, etc., to search the web or process data.\n\n"
+        "CRITICAL INSTRUCTIONS:\n"
+        "1. NEVER give up or say you lack access to Home Assistant! Use your shell tools to inspect states, query the database, calculate the metrics, and deliver the answer.\n"
+        "2. ALL RESPONSES MUST BE IN GREEK (Ελληνικά).\n"
+        "3. Output your final answer STRICTLY as a JSON object containing TWO fields:\n"
+        "   - `markdown_response`: Full detailed analysis with formatting, numbers, tables or bullet points for the Home Assistant UI notification.\n"
+        "   - `spoken_response`: Clear, natural, conversational spoken Greek WITHOUT asterisks, markdown, hashes, or technical symbols, suitable for HD text-to-speech."
+    )
+
     print(f"[Heavy Agent - Antigravity] Running Antigravity CLI for: {task_description[:80]}...", flush=True)
-    cmd = [agy_bin, "exec", task_description]
+    cmd = [agy_bin, "exec", full_prompt]
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        proc = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=180)
         combined_output = (proc.stdout or "") + "\n" + (proc.stderr or "")
 
         url_match = re.search(r'(https://[^\s]+(?:auth|device|login)[^\s]+)', combined_output)
