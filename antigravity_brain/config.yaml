@@ -1,6 +1,6 @@
 name: "Antigravity Brain"
 description: "Smart Voice Assistant Brain powered by Codex, Antigravity, and Gemini with two-phase response"
-version: "3.0.0"
+version: "3.1.0"
 slug: "antigravity_brain"
 init: true
 arch:
@@ -8,6 +8,10 @@ arch:
   - amd64
 hassio_api: true
 homeassistant_api: true
+ingress: true
+ingress_port: 8000
+panel_icon: mdi:brain
+panel_title: "Antigravity Brain"
 map:
   - homeassistant_config:rw
   - share:rw

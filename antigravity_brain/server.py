@@ -7,8 +7,12 @@ import re
 import uvicorn
 import requests as http_requests
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
+from collections import deque
+import datetime
 import memory_manager
+from auth_manager import CodexAuthManager
+from dashboard_html import get_dashboard_html
 
 memory_manager.init_db()
 
@@ -48,6 +52,9 @@ PORT = options.get("api_port", PORT)
 SUPERVISOR_TOKEN = os.environ.get("SUPERVISOR_TOKEN", "")
 
 SUPERVISOR_URL = "http://supervisor/core/api"
+
+codex_mgr = CodexAuthManager(supervisor_url=SUPERVISOR_URL, get_supervisor_token_fn=lambda: SUPERVISOR_TOKEN)
+recent_tasks = deque(maxlen=20)
 
 
 
@@ -345,6 +352,12 @@ def _execute_codex_cli(task_description: str, thinking_level: str = "high") -> t
         print("[Heavy Agent - Codex] Codex binary not found in container, falling back.", flush=True)
         return "", True
 
+    if not codex_mgr.is_authenticated:
+        if not codex_mgr.check_status():
+            print("[Heavy Agent - Codex] Codex CLI is not authenticated! Triggering autonomous auth flow...", flush=True)
+            codex_mgr.start_auth_flow()
+            return "Απαιτείται σύνδεση του Codex CLI στο Home Assistant.", True
+
     out_file = "/tmp/codex_out.txt"
     if os.path.exists(out_file):
         try:
@@ -416,41 +429,22 @@ def _execute_codex_cli(task_description: str, thinking_level: str = "high") -> t
         return str(e), True
 
 
-def _check_codex_auth_on_startup():
-    """Check Codex login status on addon startup and print device code if not logged in."""
-    import shutil
-    import threading
+def _run_autonomous_startup_auth():
+    """Check Codex login on boot. If unauthenticated, autonomously trigger device auth flow."""
     time.sleep(2)
-    codex_bin = None
-    for cand in ["./codex", "/usr/src/app/codex", "codex"]:
-        if os.path.exists(cand) or shutil.which(cand):
-            codex_bin = cand
-            break
-    if not codex_bin:
-        return
     try:
-        res = subprocess.run([codex_bin, "login", "status"], capture_output=True, text=True, timeout=10)
-        combined = (res.stdout + res.stderr).lower()
-        if "not logged in" in combined:
+        if not codex_mgr.check_status():
             print("\n" + "=" * 60, flush=True)
             print("⚠️ CODEX AUTHENTICATION REQUIRED ON STARTUP! ⚠️", flush=True)
-            print("Requesting device authorization code...", flush=True)
+            print("Triggering autonomous device code flow & HA notifications...", flush=True)
             print("=" * 60 + "\n", flush=True)
-            proc = subprocess.Popen([codex_bin, "login", "--device-auth"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-            while True:
-                line = proc.stdout.readline()
-                if not line:
-                    break
-                print(line, end='', flush=True)
-                if "Continue only if you started this login" in line:
-                    break
+            codex_mgr.start_auth_flow()
         else:
             print("[Startup] Codex CLI is authenticated and ready!", flush=True)
     except Exception as e:
         print(f"[Startup] Codex auth check error: {e}", flush=True)
 
-import threading
-threading.Thread(target=_check_codex_auth_on_startup, daemon=True).start()
+threading.Thread(target=_run_autonomous_startup_auth, daemon=True).start()
 
 
 def _execute_antigravity_cli(task_description: str, thinking_level: str = "high") -> tuple[str, bool]:
@@ -516,8 +510,17 @@ def _execute_antigravity_cli(task_description: str, thinking_level: str = "high"
 
 
 def _run_heavy_agent(task_description: str):
-
     import threading
+    start_time = time.time()
+    task_id = str(uuid.uuid4())[:8]
+    task_record = {
+        "id": task_id,
+        "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "task": task_description,
+        "status": "running",
+        "duration": 0
+    }
+    recent_tasks.appendleft(task_record)
 
     print(f"[Heavy Agent] Starting task: {task_description}")
 
@@ -738,6 +741,11 @@ def _run_heavy_agent(task_description: str):
         spoken_response = final_json.get("spoken_response", spoken_response)
     except Exception:
         print("[Heavy Agent] Failed to parse JSON from final_result. Using as raw text.")
+
+    task_record["status"] = "completed"
+    task_record["result"] = markdown_response
+    task_record["spoken"] = spoken_response
+    task_record["duration"] = round(time.time() - start_time, 1)
     
     if SUPERVISOR_TOKEN:
         url = f"{SUPERVISOR_URL}/services/notify/notify"
@@ -1327,6 +1335,60 @@ async def list_models():
 
 
 
+@app.get("/", response_class=HTMLResponse)
+async def get_dashboard():
+    """Home Assistant Ingress Web Dashboard."""
+    return HTMLResponse(content=get_dashboard_html(), status_code=200)
+
+
+@app.get("/api/status")
+async def get_api_status():
+    """Live system status for Web Dashboard and sensors."""
+    codex_mgr.check_status()
+    return {
+        "status": "ok",
+        "version": "3.1.0",
+        "fast_agent": {
+            "engine": fast_agent_engine,
+            "model": fast_agent_model,
+            "thinking": fast_agent_thinking,
+            "status": "ready"
+        },
+        "heavy_agent": {
+            "engine": heavy_agent_engine,
+            "model": heavy_agent_model,
+            "thinking": heavy_agent_thinking,
+            "codex": {
+                "available": bool(codex_mgr.codex_bin),
+                "authenticated": codex_mgr.is_authenticated,
+                "auth_pending": codex_mgr.auth_pending,
+                "auth_url": codex_mgr.auth_url,
+                "device_code": codex_mgr.device_code
+            }
+        },
+        "recent_tasks": list(recent_tasks)
+    }
+
+
+@app.post("/api/auth/codex/start")
+async def post_auth_start():
+    """Trigger manual device auth flow for Codex CLI."""
+    res = codex_mgr.start_auth_flow(force=True)
+    return res
+
+
+@app.post("/api/auth/codex/check")
+async def post_auth_check():
+    """Check Codex login status."""
+    is_auth = codex_mgr.check_status()
+    return {
+        "authenticated": is_auth,
+        "auth_pending": codex_mgr.auth_pending,
+        "device_code": codex_mgr.device_code,
+        "auth_url": codex_mgr.auth_url
+    }
+
+
 @app.get("/health")
 def health_check():
     return {
@@ -1347,7 +1409,7 @@ def health_check():
 
 
 if __name__ == "__main__":
-    print(f"Starting Antigravity Brain v3.0.0")
+    print(f"Starting Antigravity Brain v3.1.0")
     print(f"  Phase 1 (Fast Agent): engine={fast_agent_engine}, model={fast_agent_model}, thinking={fast_agent_thinking}")
     print(f"  Phase 2 (Heavy Agent): engine={heavy_agent_engine}, thinking={heavy_agent_thinking}")
     print(f"  Port: {PORT}")
