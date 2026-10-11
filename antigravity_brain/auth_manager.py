@@ -26,7 +26,7 @@ class CodexAuthManager:
 
     def _find_binary(self):
         import shutil
-        for cand in ["./codex", "/usr/src/app/codex", "codex", "codex.exe"]:
+        for cand in ["/data/codex", "./codex", "/usr/src/app/codex", "codex", "codex.exe"]:
             if os.path.exists(cand) or shutil.which(cand):
                 self.codex_bin = cand
                 return
@@ -131,7 +131,8 @@ class CodexAuthManager:
                 if not line:
                     break
 
-                line_str = line.strip()
+                # Strip ANSI escape sequences (bold, color)
+                line_str = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', line).strip()
                 if line_str:
                     print(f"[Codex Auth] {line_str}", flush=True)
 
@@ -139,11 +140,11 @@ class CodexAuthManager:
                 if url_match:
                     self.auth_url = url_match.group(1)
 
-                code_match = re.search(r'\b([A-Z0-9]{4,5}-[A-Z0-9]{4,5})\b', line_str)
+                code_match = re.search(r'([A-Z0-9]{4,5}-[A-Z0-9]{4,5})', line_str)
                 if code_match and not code_notified:
                     self.device_code = code_match.group(1)
                     code_notified = True
-                    print(f"[CodexAuthManager] Device Code: {self.device_code}, URL: {self.auth_url}", flush=True)
+                    print(f"[CodexAuthManager] Captured Device Code: {self.device_code}, URL: {self.auth_url}", flush=True)
                     self._notify_ha_device_code()
 
             self.proc.wait()

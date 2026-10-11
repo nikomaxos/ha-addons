@@ -344,7 +344,7 @@ def _execute_codex_cli(task_description: str, thinking_level: str = "high") -> t
     """
     import shutil
     codex_bin = None
-    for cand in ["./codex", "/usr/src/app/codex", "codex", "codex.exe"]:
+    for cand in ["/data/codex", "./codex", "/usr/src/app/codex", "codex", "codex.exe"]:
         if os.path.exists(cand) or shutil.which(cand):
             codex_bin = cand
             break
