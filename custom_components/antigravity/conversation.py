@@ -56,13 +56,21 @@ class AntigravityConversationAgent(
         """Process a sentence."""
         session = async_get_clientsession(self.hass)
         url = "http://192.168.50.10:8000/v1/chat/completions"
+
+        # Check whether the query originated from a voice satellite/device or text chat UI
+        is_voice = bool(user_input.satellite_id or user_input.device_id)
+
         payload = {
             "model": self._model_name,
-            "messages": [{"role": "user", "content": user_input.text}]
+            "messages": [{"role": "user", "content": user_input.text}],
+            "is_voice": is_voice,
+            "device_id": user_input.device_id,
+            "satellite_id": user_input.satellite_id,
         }
 
         try:
-            async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=120)) as response:
+            # For Heavy Agent synchronous text chat, allow up to 180 seconds for reasoning
+            async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=180)) as response:
                 response.raise_for_status()
                 data = await response.json()
                 
@@ -75,7 +83,12 @@ class AntigravityConversationAgent(
             reply = f"Σφάλμα επικοινωνίας με τον Antigravity: {err}"
 
         import re
-        speech_reply = re.sub(r'[*#_]', '', reply)
+        if is_voice:
+            # Voice TTS: clean markdown formatting for smooth speech without symbol pronunciation
+            speech_reply = re.sub(r'[*#_]', '', reply)
+        else:
+            # Text Chat: preserve full markdown (bold, lists, code) for rendering in Assist chat window
+            speech_reply = reply
 
         intent_response = intent.IntentResponse(language=user_input.language)
         intent_response.async_set_speech(speech_reply)

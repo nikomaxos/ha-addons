@@ -582,7 +582,7 @@ def _execute_antigravity_cli(task_description: str, thinking_level: str = "high"
 
 
 
-def _run_heavy_agent(task_or_envelope):
+def _run_heavy_agent(task_or_envelope, is_voice: bool = True):
     import threading
     start_time = time.time()
     
@@ -869,13 +869,16 @@ def _run_heavy_agent(task_or_envelope):
                 "spoken_response": spoken_response,
                 "task": task_description,
                 "tts_engine": curr_engine,
-                "tts_voice": curr_voice
+                "tts_voice": curr_voice,
+                "is_voice": is_voice
             }
             resp = http_requests.post(event_url, headers=_supervisor_headers(), json=event_payload, timeout=5)
             if resp.status_code != 200:
                 print(f"Error firing completion event: {resp.status_code} - {resp.text}")
         except Exception as e:
             print(f"Error firing completion event: {e}")
+
+    return markdown_response, spoken_response
 
 
 
@@ -885,7 +888,8 @@ def tool_delegate_to_antigravity(
     task_description: str,
     immediate_reply: str = "Το ελέγχω αναλυτικά και θα σε ενημερώσω.",
     reason_code: str = REASON_GENERAL_ESCALATION,
-    resolved_entities: list = None
+    resolved_entities: list = None,
+    is_voice: bool = True
 ) -> str:
     """Delegate a complex task to the Antigravity heavy agent using a structured DelegationEnvelope."""
     import threading
@@ -899,7 +903,7 @@ def tool_delegate_to_antigravity(
         resolved_entities=resolved_entities or [],
         delegation_depth=1
     )
-    threading.Thread(target=_run_heavy_agent, args=(envelope,), daemon=True).start()
+    threading.Thread(target=_run_heavy_agent, args=(envelope,), kwargs={"is_voice": is_voice}, daemon=True).start()
     return "I have delegated the task to the Heavy Agent. I will notify you when it's done."
 
 
@@ -1019,7 +1023,9 @@ TOOL_DISPATCH = {
     "delegate_to_antigravity": lambda args: tool_delegate_to_antigravity(
         args.get("task_description", ""),
         args.get("immediate_reply", "Το ελέγχω αναλυτικά και θα σε ενημερώσω."),
-        args.get("reason_code", REASON_GENERAL_ESCALATION)
+        args.get("reason_code", REASON_GENERAL_ESCALATION),
+        args.get("resolved_entities", []),
+        is_voice=args.get("is_voice", True)
     ),
     "store_memory": lambda args: tool_store_memory(args.get("fact", "")),
 }
@@ -1103,7 +1109,7 @@ def _build_gemini_contents(messages: list) -> tuple:
 
 
 
-def _execute_tool_calls(response, model_name, chat_history, config, user_prompt: str = ""):
+def _execute_tool_calls(response, model_name, chat_history, config, user_prompt: str = "", is_voice: bool = True):
     MAX_ROUNDS = 5
     current_response = response
     
@@ -1123,7 +1129,7 @@ def _execute_tool_calls(response, model_name, chat_history, config, user_prompt:
                     if user_prompt:
                         print(f"[Fallback] Empty text in round {round_idx}, auto-delegating to Heavy Agent: {user_prompt}")
                         import threading
-                        t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,))
+                        t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,), kwargs={"is_voice": is_voice})
                         t_thread.start()
                         return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω."
                     return "Συγγνώμη, παρακαλώ επαναλάβετε."
@@ -1132,7 +1138,7 @@ def _execute_tool_calls(response, model_name, chat_history, config, user_prompt:
                 if any(phrase in lower_t for phrase in ["δεν μπόρεσα να βρω", "δεν βρήκα", "δεν γνωρίζω", "δεν μπορώ να βρω", "δυστυχώς δεν"]) and user_prompt:
                     print(f"[Fallback] Fast agent apologized, auto-delegating to Heavy Agent: {user_prompt}")
                     import threading
-                    t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,))
+                    t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,), kwargs={"is_voice": is_voice})
                     t_thread.start()
                     return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω."
 
@@ -1141,7 +1147,7 @@ def _execute_tool_calls(response, model_name, chat_history, config, user_prompt:
                 if user_prompt:
                     print(f"[Fallback] ValueError on response.text, auto-delegating to Heavy Agent: {user_prompt}")
                     import threading
-                    t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,))
+                    t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,), kwargs={"is_voice": is_voice})
                     t_thread.start()
                     return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω."
                 return "(No response generated)"
@@ -1150,6 +1156,8 @@ def _execute_tool_calls(response, model_name, chat_history, config, user_prompt:
         for fc in function_calls:
             fn_name = fc.name
             fn_args = dict(fc.args) if fc.args else {}
+            if fn_name == "delegate_to_antigravity":
+                fn_args["is_voice"] = is_voice
             
             print(f"[Tool Call] {fn_name}({json.dumps(fn_args, ensure_ascii=False)[:200]})")
             
@@ -1195,7 +1203,7 @@ def _execute_tool_calls(response, model_name, chat_history, config, user_prompt:
             if any(phrase in lower_text for phrase in ["δεν μπόρεσα να βρω", "δεν βρήκα", "δεν γνωρίζω", "δεν μπορώ να", "δυστυχώς δεν"]) and user_prompt:
                 print(f"[Fallback] Fast Agent apologized after exhausting rounds, auto-delegating to Heavy Agent: {user_prompt}")
                 import threading
-                t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,))
+                t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,), kwargs={"is_voice": is_voice})
                 t_thread.start()
                 return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω."
             return final_text
@@ -1205,7 +1213,7 @@ def _execute_tool_calls(response, model_name, chat_history, config, user_prompt:
     if user_prompt:
         print(f"[Fallback] Exhausted rounds without final text. Auto-delegating to Heavy Agent: {user_prompt}")
         import threading
-        t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,))
+        t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,), kwargs={"is_voice": is_voice})
         t_thread.start()
         return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω."
 
@@ -1236,7 +1244,7 @@ def _get_openai_tools():
     return tools
 
 
-def _execute_openai_chat(messages, system_prompt, model_name, token, user_prompt):
+def _execute_openai_chat(messages, system_prompt, model_name, token, user_prompt, is_voice: bool = True):
     """Execute Fast Agent query against OpenAI API with tool support."""
     tools = _get_openai_tools()
     openai_msgs = [{"role": "system", "content": system_prompt}]
@@ -1284,6 +1292,8 @@ def _execute_openai_chat(messages, system_prompt, model_name, token, user_prompt
                 fn_args = json.loads(tc["function"].get("arguments", "{}"))
             except Exception:
                 fn_args = {}
+            if fn_name == "delegate_to_antigravity":
+                fn_args["is_voice"] = is_voice
             print(f"[OpenAI Tool Call] {fn_name}({json.dumps(fn_args, ensure_ascii=False)[:200]})")
             handler = TOOL_DISPATCH.get(fn_name)
             res_val = handler(fn_args) if handler else f"Unknown tool: {fn_name}"
@@ -1308,28 +1318,52 @@ async def chat_completions(request: Request):
     data = await request.json()
 
     messages = data.get("messages", [])
+    is_voice = data.get("is_voice", False)
 
     req_model = _normalize_model_option(data.get("model", selected_model), selected_model)
     gemini_model_name = MODEL_MAP.get(req_model, req_model)
 
     if req_model == "heavy_direct":
+        last_msg = ""
         if messages:
             last_msg = messages[-1].get("content", "")
+
+        if is_voice:
+            # Voice Mode: immediate spoken reassurance, background execution, announce on speaker
             if last_msg:
                 import threading
-                t = threading.Thread(target=_run_heavy_agent, args=(last_msg,))
+                t = threading.Thread(target=_run_heavy_agent, args=(last_msg,), kwargs={"is_voice": True}, daemon=True)
                 t.start()
-        
-        return {
-            "id": "chatcmpl-heavy",
-            "object": "chat.completion",
-            "choices": [{
-                "message": {
-                    "role": "assistant",
-                    "content": "Το ψάχνω αμέσως. Δώσε μου λίγο χρόνο."
-                }
-            }]
-        }
+            return {
+                "id": "chatcmpl-heavy",
+                "object": "chat.completion",
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": "Το ψάχνω αμέσως. Δώσε μου λίγο χρόνο."
+                    }
+                }]
+            }
+        else:
+            # Text Chat Mode: run synchronously, return written answer directly to chat, keep group speakers silent!
+            print(f"[Heavy Direct] Running synchronously for chat query: {last_msg[:80]}", flush=True)
+            if last_msg:
+                import asyncio
+                loop = asyncio.get_event_loop()
+                markdown_res, _ = await loop.run_in_executor(None, _run_heavy_agent, last_msg, False)
+            else:
+                markdown_res = "Δεν δόθηκε ερώτημα για επεξεργασία."
+
+            return {
+                "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
+                "object": "chat.completion",
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": markdown_res
+                    }
+                }]
+            }
 
     if not api_key:
 
@@ -1404,7 +1438,7 @@ async def chat_completions(request: Request):
             use_openai = (fast_agent_engine == "openai_api")
 
         if use_openai:
-            content = _execute_openai_chat(messages, final_system, effective_model, fast_agent_api_key, user_text)
+            content = _execute_openai_chat(messages, final_system, effective_model, fast_agent_api_key, user_text, is_voice=is_voice)
         else:
             config = {
                 "system_instruction": final_system,
@@ -1424,14 +1458,14 @@ async def chat_completions(request: Request):
                 contents=chat_history,
                 config=config
             )
-            content = _execute_tool_calls(response, gemini_model_name, chat_history, config, user_prompt=user_text)
+            content = _execute_tool_calls(response, gemini_model_name, chat_history, config, user_prompt=user_text, is_voice=is_voice)
 
     except Exception as e:
         print(f"Error calling {fast_agent_engine}: {e}")
         if user_text:
             print(f"[Fallback] {fast_agent_engine} error, auto-delegating to Heavy Agent: {user_text}")
             import threading
-            t = threading.Thread(target=_run_heavy_agent, args=(user_text,))
+            t = threading.Thread(target=_run_heavy_agent, args=(user_text,), kwargs={"is_voice": is_voice})
             t.start()
             content = "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω."
         else:
@@ -1527,7 +1561,7 @@ async def get_api_status():
     curr_tts_engine, curr_tts_voice = get_tts_config()
     return {
         "status": "ok",
-        "version": "3.3.5",
+        "version": "3.3.6",
         "fast_agent": {
             "engine": fast_agent_engine,
             "model": fast_agent_model,
@@ -1666,7 +1700,7 @@ def health_check():
 
 
 if __name__ == "__main__":
-    print(f"Starting Antigravity Brain v3.3.5")
+    print(f"Starting Antigravity Brain v3.3.6")
     print(f"  Phase 1 (Fast Agent): engine={fast_agent_engine}, model={fast_agent_model}, thinking={fast_agent_thinking}")
     print(f"  Phase 2 (Heavy Agent): engine={heavy_agent_engine}, thinking={heavy_agent_thinking}")
     print(f"  Port: {PORT}")
