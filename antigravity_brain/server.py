@@ -336,20 +336,18 @@ def _execute_codex_cli(task_description: str, thinking_level: str = "high") -> t
     """Execute Codex CLI non-interactively.
     Returns (output_text, limit_or_error_exceeded).
     """
+    import shutil
     codex_bin = None
     for cand in ["./codex", "/usr/src/app/codex", "codex", "codex.exe"]:
-        try:
-            if os.path.exists(cand) or subprocess.run(["which", cand], capture_output=True).returncode == 0:
-                codex_bin = cand
-                break
-        except Exception:
-            pass
+        if os.path.exists(cand) or shutil.which(cand):
+            codex_bin = cand
+            break
 
     if not codex_bin:
-        print("[Heavy Agent - Codex] Codex binary not found in container, falling back.")
+        print("[Heavy Agent - Codex] Codex binary not found in container, falling back.", flush=True)
         return "", True
 
-    print(f"[Heavy Agent - Codex] Running Codex CLI (thinking: {thinking_level}) for: {task_description[:80]}...")
+    print(f"[Heavy Agent - Codex] Running Codex CLI (thinking: {thinking_level}) for: {task_description[:80]}...", flush=True)
     cmd = [codex_bin, "exec", "--ask-for-approval", "never", task_description]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
@@ -357,45 +355,43 @@ def _execute_codex_cli(task_description: str, thinking_level: str = "high") -> t
 
         url_match = re.search(r'(https://[^\s]+(?:auth|device|login)[^\s]+)', combined_output)
         if url_match:
-            print("\n" + "=" * 60)
-            print("⚠️ CODEX LOGIN REQUIRED! ⚠️")
-            print(f"Please open this link in your browser to authenticate:\n{url_match.group(1)}")
-            print("=" * 60 + "\n")
+            print("\n" + "=" * 60, flush=True)
+            print("⚠️ CODEX LOGIN REQUIRED! ⚠️", flush=True)
+            print(f"Please open this link in your browser to authenticate:\n{url_match.group(1)}", flush=True)
+            print("=" * 60 + "\n", flush=True)
 
         lower_out = combined_output.lower()
         if "limit exceeded" in lower_out or "quota" in lower_out or "429" in lower_out or "rate limit" in lower_out:
-            print("[Heavy Agent - Codex] Limit exceeded detected!")
+            print("[Heavy Agent - Codex] Limit exceeded detected!", flush=True)
             return combined_output, True
 
         if proc.returncode != 0:
-            print(f"[Heavy Agent - Codex] Error/non-zero return code ({proc.returncode}): {proc.stderr[:200]}")
+            print(f"[Heavy Agent - Codex] Error/non-zero return code ({proc.returncode}): {proc.stderr[:200]}", flush=True)
             return combined_output, True
 
         return proc.stdout.strip(), False
     except subprocess.TimeoutExpired:
-        print("[Heavy Agent - Codex] Timed out after 120s.")
+        print("[Heavy Agent - Codex] Timed out after 120s.", flush=True)
         return "Codex process timed out.", True
     except Exception as e:
-        print(f"[Heavy Agent - Codex] Execution failed: {e}")
+        print(f"[Heavy Agent - Codex] Execution failed: {e}", flush=True)
         return str(e), True
 
 
 def _execute_antigravity_cli(task_description: str, thinking_level: str = "high") -> tuple[str, bool]:
     """Execute Antigravity CLI non-interactively."""
+    import shutil
     agy_bin = None
     for cand in ["./agy", "/usr/src/app/agy", "agy", "antigravity"]:
-        try:
-            if os.path.exists(cand) or subprocess.run(["which", cand], capture_output=True).returncode == 0:
-                agy_bin = cand
-                break
-        except Exception:
-            pass
+        if os.path.exists(cand) or shutil.which(cand):
+            agy_bin = cand
+            break
 
     if not agy_bin:
-        print("[Heavy Agent - Antigravity] Antigravity binary not found in container.")
+        print("[Heavy Agent - Antigravity] Antigravity binary not found in container.", flush=True)
         return "", True
 
-    print(f"[Heavy Agent - Antigravity] Running Antigravity CLI for: {task_description[:80]}...")
+    print(f"[Heavy Agent - Antigravity] Running Antigravity CLI for: {task_description[:80]}...", flush=True)
     cmd = [agy_bin, "exec", task_description]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
@@ -403,10 +399,10 @@ def _execute_antigravity_cli(task_description: str, thinking_level: str = "high"
 
         url_match = re.search(r'(https://[^\s]+(?:auth|device|login)[^\s]+)', combined_output)
         if url_match:
-            print("\n" + "=" * 60)
-            print("⚠️ ANTIGRAVITY LOGIN REQUIRED! ⚠️")
-            print(f"Please open this link in your browser to authenticate:\n{url_match.group(1)}")
-            print("=" * 60 + "\n")
+            print("\n" + "=" * 60, flush=True)
+            print("⚠️ ANTIGRAVITY LOGIN REQUIRED! ⚠️", flush=True)
+            print(f"Please open this link in your browser to authenticate:\n{url_match.group(1)}", flush=True)
+            print("=" * 60 + "\n", flush=True)
 
         lower_out = combined_output.lower()
         if "limit exceeded" in lower_out or "quota" in lower_out or "429" in lower_out:
