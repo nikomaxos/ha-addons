@@ -56,3 +56,16 @@
 
 ## [2026-09-25] Do Not Disturb (DND) Hours
 - The user specified DND hours for TTS notifications are: 14:00 to 17:30 (Afternoon quiet hours) AND 23:00 to 08:00 (Night quiet hours). Ensure Voice Assistants only speak outside these windows, or text-only fallback is used.
+
+## [2026-09-29] Dual-Format AI Output & Notifications
+- AI output from Heavy Agent is now forced to JSON containing 'markdown_response' and 'spoken_response'.
+- Companion app push notifications deep-link to notifications panel using 'clickAction: /notifications' and 'url: /notifications'.
+- To clean up TTS, Fast Agent applies a python regex (r'[*#_]') on strings to avoid reading out formatting symbols.
+- HD Voice (el-GR-Chirp3-HD-Laomedeia) is enabled for Jarvis Light and Heavy.
+
+## [2026-10-11] Codex CLI Integration & Autonomous Heavy Reasoning
+- **Native Binary & Auth**: The Codex CLI binary (/usr/src/app/codex) runs inside the Alpine container. Credentials persist in /data/.codex/auth.json via /root/.codex symlink.
+- **Autonomous Shell Execution**: Codex runs with --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox -o /tmp/codex_out.txt and stdin=subprocess.DEVNULL.
+- **Direct Database & API Reasoning**: Codex is instructed with full bash capabilities, allowing it to query MariaDB (mysql -h core-mariadb -u homeassistant -pRene1122 homeassistant -e ...) and HA REST API (curl with $SUPERVISOR_TOKEN) to calculate energy analytics (e.g. Ford Kuga weekly charging cost) with zero hallucinations.
+- **Robust Error Checking**: Do not search for substring 429 or naked quota when checking for rate limits (token counts like 2,429 trigger false positives). Use explicit patterns like 
+ate limit exceeded or status 429.
