@@ -101,6 +101,17 @@ codex_mgr = CodexAuthManager(supervisor_url=SUPERVISOR_URL, get_supervisor_token
 agy_mgr = AntigravityAuthManager(supervisor_url=SUPERVISOR_URL, get_supervisor_token_fn=lambda: SUPERVISOR_TOKEN)
 recent_tasks = deque(maxlen=20)
 
+def get_tts_config():
+    """Retrieve current TTS engine and voice from options.json or default."""
+    if os.path.exists(OPTIONS_PATH):
+        try:
+            with open(OPTIONS_PATH, "r") as f:
+                opts = json.load(f)
+            return opts.get("tts_engine", "tts.google_cloud"), opts.get("tts_voice", "el-GR-Chirp3-HD-Laomedeia")
+        except Exception:
+            pass
+    return "tts.google_cloud", "el-GR-Chirp3-HD-Laomedeia"
+
 def check_reauth_flags():
     """Check if reauth was requested via Add-on Settings tab (options.json)."""
     if not os.path.exists(OPTIONS_PATH):
@@ -871,7 +882,16 @@ def _run_heavy_agent(task_description: str):
             
         event_url = f"{SUPERVISOR_URL}/events/antigravity_task_completed"
         try:
-            resp = http_requests.post(event_url, headers=_supervisor_headers(), json={"result": final_result, "markdown_response": markdown_response, "spoken_response": spoken_response, "task": task_description}, timeout=5)
+            curr_engine, curr_voice = get_tts_config()
+            event_payload = {
+                "result": final_result,
+                "markdown_response": markdown_response,
+                "spoken_response": spoken_response,
+                "task": task_description,
+                "tts_engine": curr_engine,
+                "tts_voice": curr_voice
+            }
+            resp = http_requests.post(event_url, headers=_supervisor_headers(), json=event_payload, timeout=5)
             if resp.status_code != 200:
                 print(f"Error firing completion event: {resp.status_code} - {resp.text}")
         except Exception as e:
@@ -1455,9 +1475,10 @@ async def get_api_status():
     """Live system status for Web Dashboard and sensors."""
     codex_mgr.check_status()
     agy_mgr.check_status()
+    curr_tts_engine, curr_tts_voice = get_tts_config()
     return {
         "status": "ok",
-        "version": "3.1.2",
+        "version": "3.2.2",
         "fast_agent": {
             "engine": fast_agent_engine,
             "model": fast_agent_model,
@@ -1471,8 +1492,36 @@ async def get_api_status():
             "codex": codex_mgr.get_status_dict(),
             "antigravity": agy_mgr.get_status_dict()
         },
+        "tts": {
+            "engine": curr_tts_engine,
+            "voice": curr_tts_voice
+        },
         "recent_tasks": list(recent_tasks)
     }
+
+
+@app.post("/api/settings/tts")
+async def post_tts_settings(request: Request):
+    """Save TTS engine and voice settings from Web Dashboard."""
+    data = await request.json()
+    engine = data.get("engine", "tts.google_cloud")
+    voice = data.get("voice", "el-GR-Chirp3-HD-Laomedeia")
+    opts = {}
+    if os.path.exists(OPTIONS_PATH):
+        try:
+            with open(OPTIONS_PATH, "r") as f:
+                opts = json.load(f)
+        except Exception:
+            pass
+    opts["tts_engine"] = engine
+    opts["tts_voice"] = voice
+    try:
+        with open(OPTIONS_PATH, "w") as f:
+            json.dump(opts, f, indent=2)
+        print(f"[Settings] Saved TTS config: engine={engine}, voice={voice}", flush=True)
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+    return {"status": "ok", "engine": engine, "voice": voice}
 
 
 @app.post("/api/auth/codex/start")

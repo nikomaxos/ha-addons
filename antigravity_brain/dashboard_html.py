@@ -219,6 +219,49 @@ def get_dashboard_html() -> str:
       </div>
     </div>
 
+    <!-- SECTION: TTS VOICE OUTPUT SETTINGS -->
+    <div style="margin-bottom: 24px;">
+      <div class="section-title">
+        <span>🔊 Ρυθμίσεις Φωνητικών Απαντήσεων (TTS Engine &amp; Voice)</span>
+        <span style="font-size: 12px; font-weight: normal; color: var(--text-muted);">Επιλέξτε τη μηχανή Text-to-Speech και τη φωνή για τις εκφωνήσεις του Heavy Agent</span>
+      </div>
+      <div class="card">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; align-items: end;">
+          <div>
+            <label style="display: block; font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px;">Μηχανή Text-to-Speech (TTS Engine):</label>
+            <select id="tts-engine-select" class="input-field" style="margin: 0;" onchange="onTtsEngineChange()">
+              <option value="tts.google_cloud">Google Cloud TTS (Chirp3 HD &amp; WaveNet)</option>
+              <option value="tts.edge_tts_2">Microsoft Edge TTS (Nestoras &amp; Athina Neural)</option>
+              <option value="tts.openai_tts_openai">OpenAI TTS (Nova, Alloy, Onyx, Shimmer)</option>
+              <option value="tts.piper">Piper Local TTS (Offline Wyoming)</option>
+              <option value="tts.google_ai_tts">Google AI TTS (Gemini Speech)</option>
+            </select>
+          </div>
+          <div>
+            <label style="display: block; font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px;">Φωνή (Voice Name):</label>
+            <div style="display: flex; gap: 8px;">
+              <input type="text" id="tts-voice-input" class="input-field" style="margin: 0; flex: 1;" placeholder="π.χ. el-GR-Chirp3-HD-Laomedeia">
+              <select id="tts-voice-presets" class="input-field" style="margin: 0; width: 140px;" onchange="applyVoicePreset()">
+                <option value="">Προεπιλογές...</option>
+                <option value="el-GR-Chirp3-HD-Laomedeia">Chirp3 HD (Google)</option>
+                <option value="el-GR-Wavenet-A">WaveNet A (Google)</option>
+                <option value="el-GR-Wavenet-B">WaveNet B (Google)</option>
+                <option value="el-GR-NestorasNeural">Nestoras (Edge)</option>
+                <option value="el-GR-AthinaNeural">Athina (Edge)</option>
+                <option value="nova">Nova (OpenAI)</option>
+                <option value="alloy">Alloy (OpenAI)</option>
+                <option value="onyx">Onyx (OpenAI)</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <button class="btn btn-primary" style="width: 100%; height: 42px;" onclick="saveTtsSettings()">💾 Αποθήκευση Ρυθμίσεων TTS</button>
+          </div>
+        </div>
+        <p id="tts-save-msg" style="font-size: 12px; color: var(--success); margin-top: 10px; display: none;">✅ Οι ρυθμίσεις TTS αποθηκεύτηκαν επιτυχώς!</p>
+      </div>
+    </div>
+
     <!-- Recent Tasks Section -->
     <div class="tasks-section">
       <div class="card-title">
@@ -237,6 +280,7 @@ def get_dashboard_html() -> str:
     let currentCodexCode = "";
     let codexRemainingSec = 0;
     let agyRemainingSec = 0;
+    let ttsLoaded = false;
 
     async function fetchStatus() {
       if (document.hidden) return;
@@ -245,6 +289,13 @@ def get_dashboard_html() -> str:
         if (!res.ok) return;
         const data = await res.json();
         
+        // TTS Settings UI prefill
+        if (data.tts && !ttsLoaded) {
+          if (data.tts.engine) document.getElementById("tts-engine-select").value = data.tts.engine;
+          if (data.tts.voice) document.getElementById("tts-voice-input").value = data.tts.voice;
+          ttsLoaded = true;
+        }
+
         // Fast Agent UI
         document.getElementById("fast-engine").textContent = data.fast_agent.engine;
         document.getElementById("fast-model").textContent = data.fast_agent.model;
@@ -486,6 +537,48 @@ def get_dashboard_html() -> str:
         updateAgyTimerDisplay();
       }
     }, 1000);
+
+    // TTS Controls
+    function applyVoicePreset() {
+      const preset = document.getElementById("tts-voice-presets").value;
+      if (preset) {
+        document.getElementById("tts-voice-input").value = preset;
+      }
+    }
+
+    function onTtsEngineChange() {
+      const eng = document.getElementById("tts-engine-select").value;
+      const voiceInput = document.getElementById("tts-voice-input");
+      if (eng === "tts.google_cloud") {
+        voiceInput.value = "el-GR-Chirp3-HD-Laomedeia";
+      } else if (eng === "tts.edge_tts_2") {
+        voiceInput.value = "el-GR-NestorasNeural";
+      } else if (eng === "tts.openai_tts_openai") {
+        voiceInput.value = "nova";
+      } else if (eng === "tts.piper") {
+        voiceInput.value = "";
+      }
+    }
+
+    async function saveTtsSettings() {
+      const engine = document.getElementById("tts-engine-select").value;
+      const voice = document.getElementById("tts-voice-input").value.trim();
+      try {
+        const res = await fetch("api/settings/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ engine, voice })
+        });
+        if (res.ok) {
+          showToast("Οι ρυθμίσεις TTS αποθηκεύτηκαν!");
+          const msg = document.getElementById("tts-save-msg");
+          msg.style.display = "block";
+          setTimeout(() => { msg.style.display = "none"; }, 3500);
+        }
+      } catch (e) {
+        alert("Σφάλμα: " + e);
+      }
+    }
 
     // Initial fetch and auto-refresh loop
     fetchStatus();

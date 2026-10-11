@@ -1,6 +1,6 @@
 name: "Antigravity Brain"
 description: "Smart Voice Assistant Brain powered by Codex, Antigravity, and Gemini with two-phase response"
-version: "3.2.1"
+version: "3.2.2"
 slug: "antigravity_brain"
 init: true
 arch:
@@ -34,6 +34,10 @@ options:
   heavy_agent_model: "auto"
   heavy_agent_thinking: "high"
 
+  # TTS Engine & Voice Configuration
+  tts_engine: "tts.google_cloud"
+  tts_voice: "el-GR-Chirp3-HD-Laomedeia"
+
   # Re-authentication controls (toggle ON and click Save to trigger new auth flow)
   reauth_codex: false
   reauth_antigravity: false
@@ -50,6 +54,9 @@ schema:
   heavy_agent_engine: list(codex_fallback|codex_only|antigravity_only|gemini_legacy)
   heavy_agent_model: str
   heavy_agent_thinking: list(low|medium|high)
+
+  tts_engine: list(tts.google_cloud|tts.edge_tts_2|tts.openai_tts_openai|tts.piper|tts.google_ai_tts)?
+  tts_voice: str?
 
   reauth_codex: bool?
   reauth_antigravity: bool?

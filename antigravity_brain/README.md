@@ -2,7 +2,7 @@
 
 [![Open Web UI](https://img.shields.io/badge/Open-Web%20UI-41BDF5?style=for-the-badge&logo=home-assistant&logoColor=white)](/api/hassio_ingress/3210f28f_antigravity_brain/)
 [![Direct Access](https://img.shields.io/badge/Direct_Access-Port_8000-28a745?style=for-the-badge&logo=googlechrome&logoColor=white)](http://192.168.50.10:8000)
-[![Version](https://img.shields.io/badge/Version-3.2.1-blue?style=for-the-badge)](#)
+[![Version](https://img.shields.io/badge/Version-3.2.2-blue?style=for-the-badge)](#)
 
 ---
 
@@ -48,12 +48,18 @@
   * Άμεσος σύνδεσμος για το [https://auth0.openai.com/activate](https://auth0.openai.com/activate).
   * **Αντίστροφη μέτρηση σε πραγματικό χρόνο (Countdown Timer)** πριν από τη λήξη του κωδικού (15 λεπτά).
 
-#### 3. ⚙️ Επισκόπηση Ρυθμίσεων & Παραμέτρων
+#### 3. 🔊 Επιλογή Μηχανής & Φωνής TTS (Text-to-Speech Settings)
+* **Δυνατότητα επιλογής TTS Engine & Voice:**
+  * Επιλέξτε ανάμεσα σε **Google Cloud TTS**, **Microsoft Edge TTS**, **OpenAI TTS**, **Piper Local**, ή **Google AI TTS**.
+  * Ορίστε τη φωνή της αρεσκείας σας (π.χ. `el-GR-Chirp3-HD-Laomedeia`, `el-GR-NestorasNeural`, `nova`, κ.α.).
+  * Η επιλεγμένη μηχανή και φωνή χρησιμοποιούνται αυτόματα από τον αυτοματισμό εκφώνησης των απαντήσεων του Heavy Agent (`antigravity_heavy_agent_tts`).
+
+#### 4. ⚙️ Επισκόπηση Ρυθμίσεων & Παραμέτρων
 * Προβολή των τρεχόντων επιλεγμένων μοντέλων:
   * **Phase 1 Fast Agent:** Instant model (Gemini 3.8 Flash) & Thinking level.
   * **Phase 2 Heavy Agent:** Deep research engine (Codex Fallback / Antigravity) & Thinking level.
 
-#### 4. 📜 Ζωντανά Logs με Timestamps
+#### 5. 📜 Ζωντανά Logs με Timestamps
 * Παρακολούθηση της επικοινωνίας του φωνητικού βοηθού και των εκτελέσεων εργασιών σε πραγματικό χρόνο.
 * Κάθε καταγραφή ξεκινά με ακριβές timestamp `[YYYY-MM-DD HH:MM:SS]`.
 * Αυτόματη παύση αιτημάτων όταν η καρτέλα είναι στο παρασκήνιο (Page Visibility API) για μηδενική επιβάρυνση του δικτύου.

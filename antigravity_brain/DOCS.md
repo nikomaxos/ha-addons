@@ -39,10 +39,15 @@
   * Αντιγράψτε τον 8-ψήφιο κωδικό και μεταβείτε στο [https://auth0.openai.com/activate](https://auth0.openai.com/activate).
   * Παρακολουθήστε την αντίστροφη μέτρηση λήξης σε πραγματικό χρόνο.
 
-### 3. Ρυθμίσεις Μοντέλων AI
+### 3. Ρυθμίσεις Φωνής & Μηχανής TTS (Text-to-Speech)
+* Επιλογή μηχανής εκφώνησης: **Google Cloud TTS**, **Microsoft Edge TTS**, **OpenAI TTS**, **Piper Local**, κ.α.
+* Επιλογή φωνής (π.χ. `el-GR-Chirp3-HD-Laomedeia`, `el-GR-NestorasNeural`, `nova`).
+* Οι ρυθμίσεις αυτές καθοδηγούν άμεσα το automation `antigravity_heavy_agent_tts`.
+
+### 4. Ρυθμίσεις Μοντέλων AI
 * Επισκόπηση του επιλεγμένου κινητήρα 1ης φάσης (Fast Agent) και 2ης φάσης (Heavy Agent).
 * Ρυθμίσεις βάθους σκέψης (Thinking levels).
 
-### 4. Καθαρά Logs με Χρονική Σήμανση
+### 5. Καθαρά Logs με Χρονική Σήμανση
 * Κάθε εγγραφή περιλαμβάνει χρονοσφραγίδα `[YYYY-MM-DD HH:MM:SS]`.
 * Αυτόματη εξοικονόμηση πόρων (παύση polling όταν η καρτέλα είναι στο παρασκήνιο).
