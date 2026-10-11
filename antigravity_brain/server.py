@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse, HTMLResponse
 from collections import deque
 import datetime
 import memory_manager
-from auth_manager import CodexAuthManager
+from auth_manager import CodexAuthManager, AntigravityAuthManager
 from dashboard_html import get_dashboard_html
 
 memory_manager.init_db()
@@ -55,6 +55,7 @@ SUPERVISOR_TOKEN = os.environ.get("SUPERVISOR_TOKEN", "")
 SUPERVISOR_URL = "http://supervisor/core/api"
 
 codex_mgr = CodexAuthManager(supervisor_url=SUPERVISOR_URL, get_supervisor_token_fn=lambda: SUPERVISOR_TOKEN)
+agy_mgr = AntigravityAuthManager(supervisor_url=SUPERVISOR_URL, get_supervisor_token_fn=lambda: SUPERVISOR_TOKEN)
 recent_tasks = deque(maxlen=20)
 
 
@@ -432,7 +433,7 @@ def _execute_codex_cli(task_description: str, thinking_level: str = "high") -> t
 
 
 def _run_autonomous_startup_auth():
-    """Check Codex login on boot. If unauthenticated, autonomously trigger device auth flow."""
+    """Check Codex & Antigravity login on boot. If unauthenticated, autonomously trigger device auth flow."""
     time.sleep(2)
     try:
         if not codex_mgr.check_status():
@@ -446,6 +447,19 @@ def _run_autonomous_startup_auth():
     except Exception as e:
         print(f"[Startup] Codex auth check error: {e}", flush=True)
 
+    time.sleep(1)
+    try:
+        if not agy_mgr.check_status():
+            print("\n" + "=" * 60, flush=True)
+            print("⚠️ ANTIGRAVITY AUTHENTICATION REQUIRED ON STARTUP! ⚠️", flush=True)
+            print("Triggering autonomous Google auth flow & HA notifications...", flush=True)
+            print("=" * 60 + "\n", flush=True)
+            agy_mgr.start_auth_flow()
+        else:
+            print("[Startup] Antigravity CLI is authenticated and ready!", flush=True)
+    except Exception as e:
+        print(f"[Startup] Antigravity auth check error: {e}", flush=True)
+
 threading.Thread(target=_run_autonomous_startup_auth, daemon=True).start()
 
 
@@ -453,7 +467,7 @@ def _execute_antigravity_cli(task_description: str, thinking_level: str = "high"
     """Execute Antigravity CLI non-interactively."""
     import shutil
     agy_bin = None
-    for cand in ["./agy", "/usr/src/app/agy", "agy", "antigravity"]:
+    for cand in ["/data/agy", "./agy", "/usr/local/bin/agy", "/usr/src/app/agy", "agy", "antigravity"]:
         if os.path.exists(cand) or shutil.which(cand):
             agy_bin = cand
             break
@@ -461,6 +475,13 @@ def _execute_antigravity_cli(task_description: str, thinking_level: str = "high"
     if not agy_bin:
         print("[Heavy Agent - Antigravity] Antigravity binary not found in container.", flush=True)
         return "", True
+
+    if not agy_mgr.is_authenticated:
+        if not agy_mgr.check_status():
+            print("[Heavy Agent - Antigravity] Antigravity CLI is not authenticated! Triggering auth flow...", flush=True)
+            if agy_mgr.auth_state in ["expired", "idle"] or not agy_mgr.auth_pending:
+                agy_mgr.start_auth_flow(force=True)
+            return "Απαιτείται σύνδεση του Antigravity CLI στο Home Assistant.", True
 
     full_prompt = (
         f"You are the autonomous Antigravity Heavy Brain of Home Assistant, running directly inside the container as a powerful terminal AI agent.\n\n"
@@ -485,7 +506,7 @@ def _execute_antigravity_cli(task_description: str, thinking_level: str = "high"
     )
 
     print(f"[Heavy Agent - Antigravity] Running Antigravity CLI for: {task_description[:80]}...", flush=True)
-    cmd = [agy_bin, "exec", full_prompt]
+    cmd = [agy_bin, "--dangerously-skip-permissions", "--print", full_prompt]
     try:
         proc = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=180)
         combined_output = (proc.stdout or "") + "\n" + (proc.stderr or "")
@@ -1347,9 +1368,10 @@ async def get_dashboard():
 async def get_api_status():
     """Live system status for Web Dashboard and sensors."""
     codex_mgr.check_status()
+    agy_mgr.check_status()
     return {
         "status": "ok",
-        "version": "3.1.1",
+        "version": "3.1.2",
         "fast_agent": {
             "engine": fast_agent_engine,
             "model": fast_agent_model,
@@ -1360,7 +1382,8 @@ async def get_api_status():
             "engine": heavy_agent_engine,
             "model": heavy_agent_model,
             "thinking": heavy_agent_thinking,
-            "codex": codex_mgr.get_status_dict()
+            "codex": codex_mgr.get_status_dict(),
+            "antigravity": agy_mgr.get_status_dict()
         },
         "recent_tasks": list(recent_tasks)
     }
@@ -1385,6 +1408,29 @@ async def post_auth_check():
     }
 
 
+@app.post("/api/auth/antigravity/start")
+async def post_agy_auth_start():
+    """Trigger Google OAuth flow for Antigravity CLI."""
+    res = agy_mgr.start_auth_flow(force=True)
+    return res
+
+
+@app.post("/api/auth/antigravity/submit-code")
+async def post_agy_submit_code(request: Request):
+    """Submit authorization code pasted by user for Antigravity CLI."""
+    data = await request.json()
+    code = data.get("code", "")
+    res = agy_mgr.submit_auth_code(code)
+    return res
+
+
+@app.post("/api/auth/antigravity/check")
+async def post_agy_auth_check():
+    """Check Antigravity CLI login status."""
+    is_auth = agy_mgr.check_status()
+    return agy_mgr.get_status_dict()
+
+
 @app.get("/health")
 def health_check():
     return {
@@ -1405,7 +1451,7 @@ def health_check():
 
 
 if __name__ == "__main__":
-    print(f"Starting Antigravity Brain v3.1.1")
+    print(f"Starting Antigravity Brain v3.1.2")
     print(f"  Phase 1 (Fast Agent): engine={fast_agent_engine}, model={fast_agent_model}, thinking={fast_agent_thinking}")
     print(f"  Phase 2 (Heavy Agent): engine={heavy_agent_engine}, thinking={heavy_agent_thinking}")
     print(f"  Port: {PORT}")

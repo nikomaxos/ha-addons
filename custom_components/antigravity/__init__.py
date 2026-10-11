@@ -3,7 +3,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.const import Platform
 
 DOMAIN = "antigravity"
-PLATFORMS = [Platform.CONVERSATION]
+PLATFORMS = [Platform.CONVERSATION, Platform.BUTTON]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Antigravity Brain from a config entry."""

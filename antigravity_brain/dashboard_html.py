@@ -1,4 +1,4 @@
-# Dashboard HTML Generator for Antigravity Brain Ingress UI
+# Dashboard HTML Generator for Antigravity Brain Ingress UI v3.1.2
 
 def get_dashboard_html() -> str:
     return """<!DOCTYPE html>
@@ -6,7 +6,7 @@ def get_dashboard_html() -> str:
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Antigravity Brain v3.1</title>
+  <title>Antigravity Brain v3.1.2</title>
   <style>
     :root {
       --bg: #0f172a;
@@ -23,7 +23,7 @@ def get_dashboard_html() -> str:
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
     body { background-color: var(--bg); color: var(--text); padding: 20px; line-height: 1.5; }
-    .container { max-width: 900px; margin: 0 auto; }
+    .container { max-width: 950px; margin: 0 auto; }
     header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--card-border); }
     .logo-area { display: flex; align-items: center; gap: 12px; }
     .logo-icon { font-size: 32px; }
@@ -35,26 +35,30 @@ def get_dashboard_html() -> str:
     .pulse { width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: pulse 2s infinite; }
     @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
 
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .section-title { font-size: 16px; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 24px; }
     .card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
     .card-title { font-size: 16px; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; }
     .meta-item { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; }
     .meta-label { color: var(--text-muted); }
     .meta-val { font-weight: 500; }
 
-    /* Auth Box */
-    .auth-banner { background: rgba(245, 158, 11, 0.08); border: 1px solid var(--warning); border-radius: 12px; padding: 20px; margin-bottom: 24px; }
-    .auth-title { font-size: 18px; font-weight: 700; color: var(--warning); margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
-    .code-container { display: flex; align-items: center; gap: 12px; margin: 16px 0; }
-    .code-display { font-family: monospace; font-size: 28px; font-weight: 700; background: var(--code-bg); padding: 12px 24px; border-radius: 8px; border: 1px dashed var(--warning); letter-spacing: 3px; color: #fbbf24; }
-    
-    .btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; text-decoration: none; border: none; transition: 0.2s ease; }
+    /* Buttons */
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; text-decoration: none; border: none; transition: 0.2s ease; }
     .btn-primary { background: var(--primary); color: white; }
     .btn-primary:hover { background: var(--primary-hover); }
     .btn-warning { background: var(--warning); color: #000; font-weight: 700; }
     .btn-warning:hover { background: #d97706; }
+    .btn-success { background: var(--success); color: white; }
+    .btn-success:hover { background: #059669; }
     .btn-outline { background: transparent; border: 1px solid var(--card-border); color: var(--text); }
     .btn-outline:hover { background: rgba(255,255,255,0.05); }
+
+    /* CLI Auth Boxes */
+    .cli-auth-box { background: rgba(15, 23, 42, 0.6); border: 1px solid var(--card-border); border-radius: 10px; padding: 14px; margin-top: 14px; }
+    .code-display { font-family: monospace; font-size: 24px; font-weight: 700; background: var(--code-bg); padding: 10px 18px; border-radius: 8px; border: 1px dashed var(--warning); letter-spacing: 2px; color: #fbbf24; text-align: center; }
+    .input-field { width: 100%; padding: 10px 14px; background: var(--code-bg); border: 1px solid var(--card-border); color: white; border-radius: 8px; font-family: monospace; font-size: 13px; margin: 8px 0; }
+    .input-field:focus { outline: none; border-color: var(--primary); }
 
     .tasks-section { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 20px; }
     .task-item { border-bottom: 1px solid var(--card-border); padding: 12px 0; }
@@ -63,7 +67,7 @@ def get_dashboard_html() -> str:
     .task-text { font-size: 14px; margin-bottom: 6px; font-weight: 500; }
     .task-response { font-size: 13px; color: #cbd5e1; background: var(--code-bg); padding: 10px; border-radius: 6px; margin-top: 6px; white-space: pre-wrap; }
     
-    .copy-toast { position: fixed; bottom: 20px; right: 20px; background: var(--success); color: white; padding: 10px 16px; border-radius: 8px; font-size: 14px; font-weight: 600; opacity: 0; transition: opacity 0.3s ease; pointer-events: none; }
+    .copy-toast { position: fixed; bottom: 20px; right: 20px; background: var(--success); color: white; padding: 10px 16px; border-radius: 8px; font-size: 14px; font-weight: 600; opacity: 0; transition: opacity 0.3s ease; pointer-events: none; z-index: 100; }
     .copy-toast.show { opacity: 1; }
   </style>
 </head>
@@ -79,52 +83,92 @@ def get_dashboard_html() -> str:
       </div>
       <div id="system-badge" class="badge badge-success">
         <span class="pulse"></span>
-        <span>Online v3.1</span>
+        <span>Online v3.1.2</span>
       </div>
     </header>
 
-    <!-- Codex Auth Alert Banner (Shown dynamically when auth is pending) -->
-    <div id="auth-box" class="auth-banner" style="display: none;">
-      <div class="auth-title">
-        <span>🔑</span>
-        <span>Απαιτείται Σύνδεση Codex CLI (OpenAI)</span>
+    <!-- SECTION: CLI MANAGEMENT / AUTHENTICATION CONTROLS -->
+    <div style="margin-bottom: 24px;">
+      <div class="section-title">
+        <span>🎮 Κέντρο Ελέγχου Συνδέσεων CLI (CLI Management)</span>
+        <span style="font-size: 12px; font-weight: normal; color: var(--text-muted);">Πατήστε το αντίστοιχο κουμπί για εκκίνηση αυθεντικοποίησης</span>
       </div>
-      <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 12px;">
-        Για να εκτελούνται οι αναλύσεις του Heavy Agent με το μοντέλο <strong>GPT-5.6 Sol</strong>, εγκρίνετε τη σύνδεση μέσω OpenAI Device Authorization:
-      </p>
-      <div class="code-container">
-        <div id="auth-code" class="code-display">----</div>
-        <button class="btn btn-outline" onclick="copyCode()">📋 Αντιγραφή</button>
-        <a id="auth-link" href="https://auth.openai.com/codex/device" target="_blank" class="btn btn-warning">🚀 Άνοιγμα Σελίδας Έγκρισης</a>
-      </div>
-      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; font-size: 13px; color: var(--text-muted);">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <span class="pulse" style="background: var(--warning);"></span>
-          <span>Αναμονή για έγκριση στον περιηγητή...</span>
+      <div class="grid">
+        
+        <!-- CARD 1: OPENAI CODEX CLI -->
+        <div class="card" id="codex-card">
+          <div class="card-title">
+            <span>🔑 OpenAI Codex CLI</span>
+            <span id="codex-badge" class="badge badge-error">Μη Συνδεδεμένο</span>
+          </div>
+          <p id="codex-desc" style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px;">
+            Μοντέλο <strong>GPT-5.6 Sol</strong> για αυτόνομη σύνταξη κώδικα, SQL αναλύσεις και διερεύνηση βάσης.
+          </p>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button id="btn-codex-trigger" class="btn btn-warning" onclick="triggerCodexAuth()">
+              🔑 Σύνδεση / Νέος Κωδικός
+            </button>
+          </div>
+
+          <!-- Pending Box for Codex -->
+          <div id="codex-pending-box" class="cli-auth-box" style="display: none;">
+            <div style="font-size: 12px; color: var(--warning); font-weight: 600; margin-bottom: 8px;">
+              Απαιτείται Έγκριση Συσκευής OpenAI:
+            </div>
+            <div id="codex-code-display" class="code-display">----</div>
+            <div style="display: flex; gap: 8px; margin-top: 10px;">
+              <button class="btn btn-outline" style="flex: 1;" onclick="copyCodexCode()">📋 Αντιγραφή</button>
+              <a id="codex-auth-link" href="https://auth.openai.com/codex/device" target="_blank" class="btn btn-warning" style="flex: 1;">🚀 Άνοιγμα Σελίδας</a>
+            </div>
+            <div style="margin-top: 8px; display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted);">
+              <span>⏳ Υπολειπόμενος χρόνος:</span>
+              <span id="codex-timer" style="font-family: monospace; font-weight: 700; color: #fbbf24;">15:00</span>
+            </div>
+          </div>
         </div>
-        <div style="display: flex; align-items: center; gap: 6px;">
-          <span>⏳ Υπολειπόμενος χρόνος:</span>
-          <span id="auth-countdown" style="font-family: monospace; font-size: 14px; font-weight: 700; color: #fbbf24; background: rgba(251, 191, 36, 0.12); padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(251, 191, 36, 0.3);">15:00</span>
+
+        <!-- CARD 2: GOOGLE ANTIGRAVITY CLI -->
+        <div class="card" id="agy-card">
+          <div class="card-title">
+            <span>🌐 Google Antigravity CLI</span>
+            <span id="agy-badge" class="badge badge-error">Μη Συνδεδεμένο</span>
+          </div>
+          <p id="agy-desc" style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px;">
+            Μοντέλα <strong>Gemini 3.8 / Pro High</strong> με αυτόνομη εκτέλεση εντολών τερματικού.
+          </p>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button id="btn-agy-trigger" class="btn btn-primary" onclick="triggerAgyAuth()">
+              🔑 Σύνδεση με Google
+            </button>
+          </div>
+
+          <!-- Pending Box for Antigravity -->
+          <div id="agy-pending-box" class="cli-auth-box" style="display: none;">
+            <div style="font-size: 12px; color: var(--primary); font-weight: 600; margin-bottom: 8px;">
+              Βήμα 1: Συνδεθείτε με τον λογαριασμό Google
+            </div>
+            <a id="agy-auth-link" href="#" target="_blank" class="btn btn-warning" style="width: 100%; margin-bottom: 8px;">
+              🚀 Άνοιγμα Σελίδας Σύνδεσης Google
+            </a>
+            <div style="margin-bottom: 12px; display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted);">
+              <span>⏳ Χρονικό όριο Google:</span>
+              <span id="agy-timer" style="font-family: monospace; font-weight: 700; color: #fbbf24;">01:05</span>
+            </div>
+            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">
+              Βήμα 2: Επικολλήστε τον Κωδικό Εξουσιοδότησης (Authorization Code) ή το URL επιστροφής:
+            </div>
+            <input type="text" id="agy-code-input" class="input-field" placeholder="π.χ. 4/0A... ή επικολλήστε όλο το URL">
+            <button id="btn-agy-submit" class="btn btn-success" style="width: 100%; margin-top: 4px;" onclick="submitAgyCode()">
+              ✅ Υποβολή Κωδικού &amp; Ολοκλήρωση
+            </button>
+            <div id="agy-feedback" style="font-size: 12px; margin-top: 6px; text-align: center;"></div>
+          </div>
         </div>
+
       </div>
     </div>
 
-    <!-- Codex Auth Expired Alert Banner (Shown dynamically when auth is expired) -->
-    <div id="expired-box" class="auth-banner" style="display: none; background: rgba(239, 68, 68, 0.08); border-color: rgba(239, 68, 68, 0.4);">
-      <div class="auth-title" style="color: var(--error);">
-        <span>⚠️</span>
-        <span>Ο Κωδικός Codex Έληξε (15 λεπτά)</span>
-      </div>
-      <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 14px;">
-        Ο προηγούμενος κωδικός συσκευής OpenAI έχει υπερβεί το όριο των 15 λεπτών. Πατήστε το κουμπί για άμεση παραγωγή νέου κωδικού:
-      </p>
-      <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
-        <button id="btn-regen" class="btn btn-warning" onclick="triggerAuth()">🔄 Παραγωγή Νέου Κωδικού</button>
-        <span style="font-size: 13px; color: var(--text-muted);">💡 Η ανανέωση ξεκινά αυτόματα και με οποιοδήποτε φωνητικό αίτημα στον Assist.</span>
-      </div>
-    </div>
-
-    <!-- Agent Cards -->
+    <!-- Agent Cards (Phase 1 & Phase 2) -->
     <div class="grid">
       <!-- Fast Agent -->
       <div class="card">
@@ -161,15 +205,16 @@ def get_dashboard_html() -> str:
           <span class="meta-val">Codex CLI (gpt-5.6-sol)</span>
         </div>
         <div class="meta-item">
-          <span class="meta-label">Κατάσταση Σύνδεσης:</span>
-          <span id="codex-auth-label" class="meta-val" style="color: var(--success);">Συνδεδεμένο</span>
+          <span class="meta-label">Δευτερεύουσα Μηχανή:</span>
+          <span class="meta-val">Antigravity CLI (Gemini Pro)</span>
         </div>
         <div class="meta-item">
-          <span class="meta-label">Εφεδρικές Μηχανές:</span>
-          <span class="meta-val">Antigravity &rarr; Gemini 3.1 Pro</span>
+          <span class="meta-label">Εφεδρική Μηχανή:</span>
+          <span class="meta-val">Gemini 3.1 Pro Preview</span>
         </div>
-        <div style="margin-top: 14px; display: flex; gap: 8px;">
-          <button id="btn-reauth" class="btn btn-outline" style="font-size: 12px; padding: 6px 12px;" onclick="triggerAuth()">🔄 Επανασύνδεση Codex</button>
+        <div class="meta-item">
+          <span class="meta-label">Έξοδος Αποτελεσμάτων:</span>
+          <span class="meta-val" style="color: var(--text-muted); font-size: 12px;">Persistent Notif &amp; HD TTS Speak</span>
         </div>
       </div>
     </div>
@@ -189,8 +234,9 @@ def get_dashboard_html() -> str:
   <div id="toast" class="copy-toast">Ο κωδικός αντιγράφηκε!</div>
 
   <script>
-    let currentCode = "";
-    let remainingSec = 0;
+    let currentCodexCode = "";
+    let codexRemainingSec = 0;
+    let agyRemainingSec = 0;
 
     async function fetchStatus() {
       try {
@@ -202,49 +248,71 @@ def get_dashboard_html() -> str:
         document.getElementById("fast-engine").textContent = data.fast_agent.engine;
         document.getElementById("fast-model").textContent = data.fast_agent.model;
 
-        // Codex Auth Status
-        const codex = data.heavy_agent.codex;
-        const authBox = document.getElementById("auth-box");
-        const expiredBox = document.getElementById("expired-box");
-        const heavyStatus = document.getElementById("heavy-status");
-        const authLabel = document.getElementById("codex-auth-label");
+        // 1. Codex CLI UI
+        const codex = data.heavy_agent.codex || {};
+        const codexBadge = document.getElementById("codex-badge");
+        const codexDesc = document.getElementById("codex-desc");
+        const codexPendingBox = document.getElementById("codex-pending-box");
+        const codexCodeDisplay = document.getElementById("codex-code-display");
+        const codexAuthLink = document.getElementById("codex-auth-link");
 
         if (codex.auth_state === "pending" || (codex.auth_pending && codex.device_code)) {
-          authBox.style.display = "block";
-          expiredBox.style.display = "none";
-          document.getElementById("auth-code").textContent = codex.device_code || "----";
-          currentCode = codex.device_code;
-          if (codex.auth_url) {
-            document.getElementById("auth-link").href = codex.auth_url;
-          }
-          remainingSec = codex.remaining_seconds || 0;
-          updateTimerDisplay();
-
-          heavyStatus.className = "badge badge-warning";
-          heavyStatus.textContent = "Απαιτείται Σύνδεση";
-          authLabel.textContent = "Εκκρεμεί Έγκριση";
-          authLabel.style.color = "var(--warning)";
+          codexBadge.className = "badge badge-warning";
+          codexBadge.textContent = "Εκκρεμεί Έγκριση";
+          codexDesc.textContent = "Απαιτείται έγκριση μέσω OpenAI Device Auth. Εισάγετε τον κωδικό παρακάτω:";
+          codexPendingBox.style.display = "block";
+          codexCodeDisplay.textContent = codex.device_code || "----";
+          currentCodexCode = codex.device_code;
+          if (codex.auth_url) codexAuthLink.href = codex.auth_url;
+          codexRemainingSec = codex.remaining_seconds || 0;
+          updateCodexTimerDisplay();
         } else if (codex.auth_state === "expired") {
-          authBox.style.display = "none";
-          expiredBox.style.display = "block";
-          heavyStatus.className = "badge badge-warning";
-          heavyStatus.textContent = "Κωδικός Έληξε";
-          authLabel.textContent = "Έληξε (15 λεπτά)";
-          authLabel.style.color = "var(--warning)";
+          codexBadge.className = "badge badge-warning";
+          codexBadge.textContent = "Κωδικός Έληξε";
+          codexDesc.textContent = "⚠️ Ο προηγούμενος κωδικός έληξε (15 λεπτά). Πατήστε το κουμπί για νέο κωδικό.";
+          codexPendingBox.style.display = "none";
         } else if (codex.authenticated || codex.auth_state === "authenticated") {
-          authBox.style.display = "none";
-          expiredBox.style.display = "none";
-          heavyStatus.className = "badge badge-success";
-          heavyStatus.textContent = "Συνδεδεμένο";
-          authLabel.textContent = "Ενεργό (ChatGPT)";
-          authLabel.style.color = "var(--success)";
+          codexBadge.className = "badge badge-success";
+          codexBadge.textContent = "Συνδεδεμένο";
+          codexDesc.textContent = "✅ Συνδεδεμένο επιτυχώς με OpenAI ChatGPT (gpt-5.6-sol).";
+          codexPendingBox.style.display = "none";
         } else {
-          authBox.style.display = "none";
-          expiredBox.style.display = "none";
-          heavyStatus.className = "badge badge-error";
-          heavyStatus.textContent = "Μη Συνδεδεμένο";
-          authLabel.textContent = "Αποσυνδεδεμένο";
-          authLabel.style.color = "var(--error)";
+          codexBadge.className = "badge badge-error";
+          codexBadge.textContent = "Μη Συνδεδεμένο";
+          codexDesc.textContent = "Αποσυνδεδεμένο. Πατήστε το κουμπί για έναρξη διαδικασίας σύνδεσης.";
+          codexPendingBox.style.display = "none";
+        }
+
+        // 2. Antigravity CLI UI
+        const agy = data.heavy_agent.antigravity || {};
+        const agyBadge = document.getElementById("agy-badge");
+        const agyDesc = document.getElementById("agy-desc");
+        const agyPendingBox = document.getElementById("agy-pending-box");
+        const agyAuthLink = document.getElementById("agy-auth-link");
+
+        if (agy.auth_state === "pending" && agy.auth_url) {
+          agyBadge.className = "badge badge-warning";
+          agyBadge.textContent = "Εκκρεμεί Σύνδεση";
+          agyDesc.textContent = "Απαιτείται σύνδεση Google. Ανοίξτε τη σελίδα έγκρισης και επικολλήστε τον κωδικό:";
+          agyPendingBox.style.display = "block";
+          agyAuthLink.href = agy.auth_url;
+          agyRemainingSec = agy.remaining_seconds || 0;
+          updateAgyTimerDisplay();
+        } else if (agy.auth_state === "expired") {
+          agyBadge.className = "badge badge-warning";
+          agyBadge.textContent = "Σύνδεση Έληξε";
+          agyDesc.textContent = "⚠️ Η προηγούμενη σύνδεση έληξε. Πατήστε το κουμπί για νέα σύνδεση Google.";
+          agyPendingBox.style.display = "none";
+        } else if (agy.authenticated || agy.auth_state === "authenticated") {
+          agyBadge.className = "badge badge-success";
+          agyBadge.textContent = "Συνδεδεμένο";
+          agyDesc.textContent = "✅ Συνδεδεμένο επιτυχώς με Google Account (Gemini 3.8 / Pro).";
+          agyPendingBox.style.display = "none";
+        } else {
+          agyBadge.className = "badge badge-error";
+          agyBadge.textContent = "Μη Συνδεδεμένο";
+          agyDesc.textContent = "Αποσυνδεδεμένο. Πατήστε το κουμπί για έναρξη διαδικασίας σύνδεσης με Google.";
+          agyPendingBox.style.display = "none";
         }
 
         // Recent Tasks
@@ -266,46 +334,125 @@ def get_dashboard_html() -> str:
       }
     }
 
-    function updateTimerDisplay() {
-      const mins = Math.floor(remainingSec / 60).toString().padStart(2, '0');
-      const secs = (remainingSec % 60).toString().padStart(2, '0');
-      const el = document.getElementById("auth-countdown");
+    function updateCodexTimerDisplay() {
+      const mins = Math.floor(codexRemainingSec / 60).toString().padStart(2, '0');
+      const secs = (codexRemainingSec % 60).toString().padStart(2, '0');
+      const el = document.getElementById("codex-timer");
       if (el) el.textContent = `${mins}:${secs}`;
     }
 
-    function copyCode() {
-      if (!currentCode) return;
-      navigator.clipboard.writeText(currentCode).then(() => {
-        const toast = document.getElementById("toast");
-        toast.className = "copy-toast show";
-        setTimeout(() => { toast.className = "copy-toast"; }, 2500);
+    function updateAgyTimerDisplay() {
+      const mins = Math.floor(agyRemainingSec / 60).toString().padStart(2, '0');
+      const secs = (agyRemainingSec % 60).toString().padStart(2, '0');
+      const el = document.getElementById("agy-timer");
+      if (el) el.textContent = `${mins}:${secs}`;
+    }
+
+    function copyCodexCode() {
+      if (!currentCodexCode) return;
+      navigator.clipboard.writeText(currentCodexCode).then(() => {
+        showToast("Ο κωδικός Codex αντιγράφηκε!");
       });
     }
 
-    async function triggerAuth() {
+    function showToast(msg) {
+      const toast = document.getElementById("toast");
+      toast.textContent = msg;
+      toast.className = "copy-toast show";
+      setTimeout(() => { toast.className = "copy-toast"; }, 2500);
+    }
+
+    async function triggerCodexAuth() {
       try {
-        const btnRegen = document.getElementById("btn-regen");
-        const btnReauth = document.getElementById("btn-reauth");
-        if (btnRegen) { btnRegen.disabled = true; btnRegen.textContent = "⏳ Παραγωγή..."; }
-        if (btnReauth) { btnReauth.disabled = true; }
-        
+        const btn = document.getElementById("btn-codex-trigger");
+        if (btn) { btn.disabled = true; btn.textContent = "⏳ Παραγωγή..."; }
         await fetch("api/auth/codex/start", { method: "POST" });
         await fetchStatus();
       } catch (e) {
-        alert("Σφάλμα έναρξης σύνδεσης: " + e);
+        alert("Σφάλμα έναρξης σύνδεσης Codex: " + e);
       } finally {
-        const btnRegen = document.getElementById("btn-regen");
-        const btnReauth = document.getElementById("btn-reauth");
-        if (btnRegen) { btnRegen.disabled = false; btnRegen.textContent = "🔄 Παραγωγή Νέου Κωδικού"; }
-        if (btnReauth) { btnReauth.disabled = false; }
+        const btn = document.getElementById("btn-codex-trigger");
+        if (btn) { btn.disabled = false; btn.textContent = "🔑 Σύνδεση / Νέος Κωδικός"; }
       }
     }
 
-    // Local countdown ticker
+    async function triggerAgyAuth() {
+      try {
+        const btn = document.getElementById("btn-agy-trigger");
+        if (btn) { btn.disabled = true; btn.textContent = "⏳ Εκκίνηση..."; }
+        await fetch("api/auth/antigravity/start", { method: "POST" });
+        await fetchStatus();
+      } catch (e) {
+        alert("Σφάλμα έναρξης σύνδεσης Antigravity: " + e);
+      } finally {
+        const btn = document.getElementById("btn-agy-trigger");
+        if (btn) { btn.disabled = false; btn.textContent = "🔑 Σύνδεση με Google"; }
+      }
+    }
+
+    async function submitAgyCode() {
+      const input = document.getElementById("agy-code-input");
+      const feedback = document.getElementById("agy-feedback");
+      const btn = document.getElementById("btn-agy-submit");
+      let codeVal = input.value.trim();
+      if (!codeVal) {
+        alert("Παρακαλώ εισάγετε τον κωδικό εξουσιοδότησης.");
+        return;
+      }
+
+      // If user pasted full callback URL, extract code param
+      if (codeVal.includes("code=")) {
+        try {
+          const urlObj = new URL(codeVal);
+          const extracted = urlObj.searchParams.get("code");
+          if (extracted) codeVal = extracted;
+        } catch (e) {
+          const match = codeVal.match(/[?&]code=([^&]+)/);
+          if (match) codeVal = decodeURIComponent(match[1]);
+        }
+      }
+
+      try {
+        btn.disabled = true;
+        btn.textContent = "⏳ Επιβεβαίωση...";
+        feedback.style.color = "var(--text-muted)";
+        feedback.textContent = "Υποβολή κωδικού και έλεγχος σύνδεσης...";
+
+        const res = await fetch("api/auth/antigravity/submit-code", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code: codeVal })
+        });
+        const data = await res.json();
+        if (data.status === "success" || data.status === "authenticated") {
+          feedback.style.color = "var(--success)";
+          feedback.textContent = "🎉 Επιτυχής σύνδεση!";
+          input.value = "";
+          showToast("Το Antigravity CLI συνδέθηκε επιτυχώς!");
+          setTimeout(fetchStatus, 1500);
+        } else {
+          feedback.style.color = "var(--warning)";
+          feedback.textContent = data.message || "Ο κωδικός υποβλήθηκε. Ελέγχεται η κατάσταση...";
+          setTimeout(fetchStatus, 2000);
+        }
+      } catch (e) {
+        feedback.style.color = "var(--error)";
+        feedback.textContent = "Σφάλμα υποβολής: " + e;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "✅ Υποβολή Κωδικού & Ολοκλήρωση";
+      }
+    }
+
+    // Local countdown ticker for Codex & Antigravity
     setInterval(() => {
-      if (remainingSec > 0) {
-        remainingSec--;
-        updateTimerDisplay();
+      if (codexRemainingSec > 0) {
+        codexRemainingSec--;
+        updateCodexTimerDisplay();
+      }
+      if (agyRemainingSec > 0) {
+        agyRemainingSec--;
+        updateAgyTimerDisplay();
       }
     }, 1000);
 
