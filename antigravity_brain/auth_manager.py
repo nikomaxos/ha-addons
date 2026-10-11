@@ -3,6 +3,8 @@ import sys
 import datetime
 
 class TimestampedStream:
+    _is_timestamped = True
+
     def __init__(self, stream):
         self.stream = stream
         self.at_line_start = True
@@ -28,9 +30,9 @@ class TimestampedStream:
     def isatty(self):
         return getattr(self.stream, 'isatty', lambda: False)()
 
-if not isinstance(sys.stdout, TimestampedStream):
+if not getattr(sys.stdout, '_is_timestamped', False):
     sys.stdout = TimestampedStream(sys.stdout)
-if not isinstance(sys.stderr, TimestampedStream):
+if not getattr(sys.stderr, '_is_timestamped', False):
     sys.stderr = TimestampedStream(sys.stderr)
 
 import re
@@ -797,8 +799,12 @@ class AntigravityAuthManager:
 
         msg_markdown = (
             f"### ⚠️ Η σύνδεση Antigravity CLI έληξε\n\n"
-            f"Η προηγούμενη συνεδρία σύνδεσης Google έληξε (όριο 60 δευτερολέπτων).\n\n"
-            f"Μπορείτε να ξεκινήσετε νέα σύνδεση πατώντας **«🔑 Σύνδεση Antigravity CLI»** στο Ingress Web Dashboard του Antigravity Brain."
+            f"Η προηγούμενη συνεδρία σύνδεσης Google έληξε (όριο ασφαλείας 60 δευτερολέπτων της Google).\n\n"
+            f"**Μπορείτε να ξεκινήσετε νέα σύνδεση άμεσα με έναν από τους εξής 3 τρόπους:**\n"
+            f"1. **Από το Web Dashboard**: Ανοίξτε το **Antigravity Brain** στην πλαϊνή μπάρα (αριστερό μενού) και πατήστε **«🔄 Έναρξη Νέας Σύνδεσης Google»**.\n"
+            f"2. **Από το Home Assistant**: Πατήστε το κουμπί **`button.connect_antigravity_cli`**.\n"
+            f"3. **Από τις Ρυθμίσεις του Add-on**: Ενεργοποιήστε τον διακόπτη **`reauth_antigravity`** στην καρτέλα Configuration!\n\n"
+            f"*(Ο φωνητικός βοηθός συνεχίζει να λειτουργεί απρόσκοπτα μέσω του συνδεδεμένου Codex & Gemini)*"
         )
 
         try:

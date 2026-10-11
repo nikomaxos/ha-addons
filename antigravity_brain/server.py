@@ -3,6 +3,8 @@ import sys
 import datetime
 
 class TimestampedStream:
+    _is_timestamped = True
+
     def __init__(self, stream):
         self.stream = stream
         self.at_line_start = True
@@ -28,8 +30,10 @@ class TimestampedStream:
     def isatty(self):
         return getattr(self.stream, 'isatty', lambda: False)()
 
-sys.stdout = TimestampedStream(sys.stdout)
-sys.stderr = TimestampedStream(sys.stderr)
+if not getattr(sys.stdout, '_is_timestamped', False):
+    sys.stdout = TimestampedStream(sys.stdout)
+if not getattr(sys.stderr, '_is_timestamped', False):
+    sys.stderr = TimestampedStream(sys.stderr)
 
 import json
 import time
