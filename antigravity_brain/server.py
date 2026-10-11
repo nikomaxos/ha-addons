@@ -164,16 +164,34 @@ codex_mgr = CodexAuthManager(supervisor_url=SUPERVISOR_URL, get_supervisor_token
 agy_mgr = AntigravityAuthManager(supervisor_url=SUPERVISOR_URL, get_supervisor_token_fn=lambda: SUPERVISOR_TOKEN)
 recent_tasks = deque(maxlen=20)
 
+GOOGLE_AI_VOICE_IDS = {
+    "zephyr", "puck", "charon", "kore", "fenrir", "leda", "orus", "aoede",
+    "callirrhoe", "autonoe", "enceladus", "iapetus", "umbriel", "algieba",
+    "despina", "erinome", "algenib", "rasalgethi", "laomedeia", "achernar",
+    "alnilam", "schedar", "gacrux", "pulcherrima", "achird", "zubenelgenubi",
+    "vindemiatrix", "sadachbia", "sadaltager", "sulafat"
+}
+
 def get_tts_config():
     """Retrieve current TTS engine and voice from options.json or default."""
+    engine = "tts.google_cloud"
+    voice = "el-GR-Chirp3-HD-Laomedeia"
     if os.path.exists(OPTIONS_PATH):
         try:
             with open(OPTIONS_PATH, "r") as f:
                 opts = json.load(f)
-            return opts.get("tts_engine", "tts.google_cloud"), opts.get("tts_voice", "el-GR-Chirp3-HD-Laomedeia")
+            engine = opts.get("tts_engine", engine)
+            voice = opts.get("tts_voice", voice)
         except Exception:
             pass
-    return "tts.google_cloud", "el-GR-Chirp3-HD-Laomedeia"
+
+    normalized_voice = voice
+    if engine == "tts.google_ai_tts" and voice:
+        first_token = voice.split()[0].lower()
+        if first_token in GOOGLE_AI_VOICE_IDS:
+            normalized_voice = first_token
+
+    return engine, normalized_voice
 
 def check_reauth_flags():
     """Check if reauth was requested via Add-on Settings tab (options.json)."""
@@ -1483,7 +1501,7 @@ async def get_api_status():
     curr_tts_engine, curr_tts_voice = get_tts_config()
     return {
         "status": "ok",
-        "version": "3.3.2",
+        "version": "3.3.3",
         "fast_agent": {
             "engine": fast_agent_engine,
             "model": fast_agent_model,
@@ -1591,7 +1609,7 @@ def health_check():
 
 
 if __name__ == "__main__":
-    print(f"Starting Antigravity Brain v3.3.2")
+    print(f"Starting Antigravity Brain v3.3.3")
     print(f"  Phase 1 (Fast Agent): engine={fast_agent_engine}, model={fast_agent_model}, thinking={fast_agent_thinking}")
     print(f"  Phase 2 (Heavy Agent): engine={heavy_agent_engine}, thinking={heavy_agent_thinking}")
     print(f"  Port: {PORT}")

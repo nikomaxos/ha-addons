@@ -1,6 +1,6 @@
 name: "Antigravity Brain"
 description: "Smart Voice Assistant Brain powered by Codex, Antigravity, and Gemini with two-phase response"
-version: "3.3.2"
+version: "3.3.3"
 slug: "antigravity_brain"
 init: true
 arch:
@@ -51,7 +51,7 @@ schema:
   heavy_agent_thinking: list(low|medium|high)
 
   tts_engine: list(tts.google_cloud|tts.edge_tts_2|tts.openai_tts_openai|tts.piper|tts.google_ai_tts)?
-  tts_voice: list(el-GR-Chirp3-HD-Laomedeia|el-GR-NestorasNeural|el-GR-AthinaNeural|nova|alloy|kore|laomedeia|el_GR-rapunzelina-medium)?
+  tts_voice: list(Zephyr (Bright)|Puck (Upbeat)|Charon (Informative)|Kore (Firm)|Fenrir (Excitable)|Leda (Youthful)|Orus (Firm)|Aoede (Breezy)|Callirrhoe (Easy-going)|Autonoe (Bright)|Enceladus (Breathy)|Iapetus (Clear)|Umbriel (Easy-going)|Algieba (Smooth)|Despina (Smooth)|Erinome (Clear)|Algenib (Gravelly)|Rasalgethi (Informative)|Laomedeia (Upbeat)|Achernar (Soft)|Alnilam (Firm)|Schedar (Even)|Gacrux (Mature)|Pulcherrima (Forward)|Achird (Friendly)|Zubenelgenubi (Casual)|Vindemiatrix (Gentle)|Sadachbia (Lively)|Sadaltager (Knowledgeable)|Sulafat (Warm)|zephyr|puck|charon|kore|fenrir|leda|orus|aoede|callirrhoe|autonoe|enceladus|iapetus|umbriel|algieba|despina|erinome|algenib|rasalgethi|laomedeia|achernar|alnilam|schedar|gacrux|pulcherrima|achird|zubenelgenubi|vindemiatrix|sadachbia|sadaltager|sulafat|el-GR-Chirp3-HD-Laomedeia|el-GR-NestorasNeural|el-GR-AthinaNeural|nova|alloy|el_GR-rapunzelina-medium)?
 
   reauth_codex: bool?
   reauth_antigravity: bool?

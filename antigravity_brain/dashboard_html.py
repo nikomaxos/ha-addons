@@ -555,12 +555,36 @@ def get_dashboard_html() -> str:
         { id: "shimmer", name: "Shimmer (Καθαρή Γυναικεία)" }
       ],
       "tts.google_ai_tts": [
-        { id: "kore", name: "✨ Kore (Gemini Speech)" },
-        { id: "laomedeia", name: "Laomedeia (Gemini Speech)" },
-        { id: "zephyr", name: "Zephyr (Gemini Speech)" },
-        { id: "aoede", name: "Aoede (Gemini Speech)" },
-        { id: "puck", name: "Puck (Gemini Speech)" },
-        { id: "fenrir", name: "Fenrir (Gemini Speech)" }
+        { id: "zephyr", name: "Zephyr (Bright)" },
+        { id: "puck", name: "Puck (Upbeat)" },
+        { id: "charon", name: "Charon (Informative)" },
+        { id: "kore", name: "Kore (Firm)" },
+        { id: "fenrir", name: "Fenrir (Excitable)" },
+        { id: "leda", name: "Leda (Youthful)" },
+        { id: "orus", name: "Orus (Firm)" },
+        { id: "aoede", name: "Aoede (Breezy)" },
+        { id: "callirrhoe", name: "Callirrhoe (Easy-going)" },
+        { id: "autonoe", name: "Autonoe (Bright)" },
+        { id: "enceladus", name: "Enceladus (Breathy)" },
+        { id: "iapetus", name: "Iapetus (Clear)" },
+        { id: "umbriel", name: "Umbriel (Easy-going)" },
+        { id: "algieba", name: "Algieba (Smooth)" },
+        { id: "despina", name: "Despina (Smooth)" },
+        { id: "erinome", name: "Erinome (Clear)" },
+        { id: "algenib", name: "Algenib (Gravelly)" },
+        { id: "rasalgethi", name: "Rasalgethi (Informative)" },
+        { id: "laomedeia", name: "Laomedeia (Upbeat)" },
+        { id: "achernar", name: "Achernar (Soft)" },
+        { id: "alnilam", name: "Alnilam (Firm)" },
+        { id: "schedar", name: "Schedar (Even)" },
+        { id: "gacrux", name: "Gacrux (Mature)" },
+        { id: "pulcherrima", name: "Pulcherrima (Forward)" },
+        { id: "achird", name: "Achird (Friendly)" },
+        { id: "zubenelgenubi", name: "Zubenelgenubi (Casual)" },
+        { id: "vindemiatrix", name: "Vindemiatrix (Gentle)" },
+        { id: "sadachbia", name: "Sadachbia (Lively)" },
+        { id: "sadaltager", name: "Sadaltager (Knowledgeable)" },
+        { id: "sulafat", name: "Sulafat (Warm)" }
       ],
       "tts.piper": [
         { id: "el_GR-rapunzelina-low", name: "Ραπουνζελίνα Low (Offline)" },
@@ -582,7 +606,7 @@ def get_dashboard_html() -> str:
         const opt = document.createElement("option");
         opt.value = v.id;
         opt.textContent = v.name;
-        if (selectedVoice && v.id === selectedVoice) {
+        if (selectedVoice && (v.id === selectedVoice.toLowerCase() || v.name === selectedVoice || v.id === selectedVoice.split(' ')[0].toLowerCase())) {
           opt.selected = true;
           found = true;
         }
