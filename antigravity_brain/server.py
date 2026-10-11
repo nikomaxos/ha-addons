@@ -1591,7 +1591,7 @@ def health_check():
 
 
 if __name__ == "__main__":
-    print(f"Starting Antigravity Brain v3.3.1")
+    print(f"Starting Antigravity Brain v3.3.2")
     print(f"  Phase 1 (Fast Agent): engine={fast_agent_engine}, model={fast_agent_model}, thinking={fast_agent_thinking}")
     print(f"  Phase 2 (Heavy Agent): engine={heavy_agent_engine}, thinking={heavy_agent_thinking}")
     print(f"  Port: {PORT}")
