@@ -1384,8 +1384,7 @@ async def chat_completions(request: Request):
 
         final_system += "\n\n" + memory_context
 
-
-
+    try:
         # Smart engine auto-routing: never fails even if user picked mismatched engine/model
         effective_model = req_model or fast_agent_model
         is_openai_model = any(effective_model.startswith(p) for p in ["gpt-", "o1", "o3", "chatgpt"])
