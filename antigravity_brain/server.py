@@ -394,8 +394,8 @@ def _execute_codex_cli(task_description: str, thinking_level: str = "high") -> t
             print("=" * 60 + "\n", flush=True)
 
         lower_out = combined_output.lower()
-        if "limit exceeded" in lower_out or "quota" in lower_out or "429" in lower_out or "rate limit" in lower_out:
-            print("[Heavy Agent - Codex] Limit exceeded detected!", flush=True)
+        if "rate limit exceeded" in lower_out or "quota exceeded" in lower_out or "insufficient_quota" in lower_out or "too many requests" in lower_out or "status 429" in lower_out or "error 429" in lower_out:
+            print("[Heavy Agent - Codex] Rate limit or quota exceeded detected!", flush=True)
             return combined_output, True
 
         if proc.returncode != 0:
@@ -502,7 +502,7 @@ def _execute_antigravity_cli(task_description: str, thinking_level: str = "high"
             print("=" * 60 + "\n", flush=True)
 
         lower_out = combined_output.lower()
-        if "limit exceeded" in lower_out or "quota" in lower_out or "429" in lower_out:
+        if "rate limit exceeded" in lower_out or "quota exceeded" in lower_out or "insufficient_quota" in lower_out or "too many requests" in lower_out or "status 429" in lower_out or "error 429" in lower_out:
             return combined_output, True
 
         if proc.returncode != 0:
