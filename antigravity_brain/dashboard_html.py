@@ -238,21 +238,11 @@ def get_dashboard_html() -> str:
             </select>
           </div>
           <div>
-            <label style="display: block; font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px;">Φωνή (Voice Name):</label>
-            <div style="display: flex; gap: 8px;">
-              <input type="text" id="tts-voice-input" class="input-field" style="margin: 0; flex: 1;" placeholder="π.χ. el-GR-Chirp3-HD-Laomedeia">
-              <select id="tts-voice-presets" class="input-field" style="margin: 0; width: 140px;" onchange="applyVoicePreset()">
-                <option value="">Προεπιλογές...</option>
-                <option value="el-GR-Chirp3-HD-Laomedeia">Chirp3 HD (Google)</option>
-                <option value="el-GR-Wavenet-A">WaveNet A (Google)</option>
-                <option value="el-GR-Wavenet-B">WaveNet B (Google)</option>
-                <option value="el-GR-NestorasNeural">Nestoras (Edge)</option>
-                <option value="el-GR-AthinaNeural">Athina (Edge)</option>
-                <option value="nova">Nova (OpenAI)</option>
-                <option value="alloy">Alloy (OpenAI)</option>
-                <option value="onyx">Onyx (OpenAI)</option>
-              </select>
-            </div>
+            <label style="display: block; font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px;">Φωνή (Dynamic Voice Dropdown):</label>
+            <select id="tts-voice-select" class="input-field" style="margin: 0;" onchange="onTtsVoiceChange()">
+              <!-- Dynamically populated based on selected TTS engine -->
+            </select>
+            <input type="text" id="tts-voice-custom" class="input-field" style="margin-top: 6px; display: none;" placeholder="Πληκτρολογήστε προσαρμοσμένο όνομα φωνής (custom voice)">
           </div>
           <div>
             <button class="btn btn-primary" style="width: 100%; height: 42px;" onclick="saveTtsSettings()">💾 Αποθήκευση Ρυθμίσεων TTS</button>
@@ -292,7 +282,7 @@ def get_dashboard_html() -> str:
         // TTS Settings UI prefill
         if (data.tts && !ttsLoaded) {
           if (data.tts.engine) document.getElementById("tts-engine-select").value = data.tts.engine;
-          if (data.tts.voice) document.getElementById("tts-voice-input").value = data.tts.voice;
+          populateVoices(data.tts.engine || "tts.google_cloud", data.tts.voice || "");
           ttsLoaded = true;
         }
 
@@ -538,31 +528,110 @@ def get_dashboard_html() -> str:
       }
     }, 1000);
 
-    // TTS Controls
-    function applyVoicePreset() {
-      const preset = document.getElementById("tts-voice-presets").value;
-      if (preset) {
-        document.getElementById("tts-voice-input").value = preset;
+    // TTS Controls: Dynamic Voice Mapping
+    const TTS_VOICE_MAP = {
+      "tts.google_cloud": [
+        { id: "el-GR-Chirp3-HD-Laomedeia", name: "✨ Chirp3 HD Laomedeia (Προτεινόμενη HD Φυσική)" },
+        { id: "el-GR-Chirp3-HD-Fenrir", name: "Chirp3 HD Fenrir (Ανδρική HD)" },
+        { id: "el-GR-Chirp3-HD-Puck", name: "Chirp3 HD Puck (Ανδρική HD)" },
+        { id: "el-GR-Chirp3-HD-Charon", name: "Chirp3 HD Charon (Ανδρική HD)" },
+        { id: "el-GR-Chirp3-HD-Aoede", name: "Chirp3 HD Aoede (Γυναικεία HD)" },
+        { id: "el-GR-Wavenet-A", name: "WaveNet A (Γυναικεία)" },
+        { id: "el-GR-Wavenet-B", name: "WaveNet B (Ανδρική)" },
+        { id: "el-GR-Wavenet-C", name: "WaveNet C (Γυναικεία)" },
+        { id: "el-GR-Standard-A", name: "Standard A (Γυναικεία)" },
+        { id: "el-GR-Standard-B", name: "Standard B (Ανδρική)" }
+      ],
+      "tts.edge_tts_2": [
+        { id: "el-GR-NestorasNeural", name: "✨ Νέστορας (el-GR-NestorasNeural - Ανδρική)" },
+        { id: "el-GR-AthinaNeural", name: "Αθηνά (el-GR-AthinaNeural - Γυναικεία)" }
+      ],
+      "tts.openai_tts_openai": [
+        { id: "nova", name: "✨ Nova (Προτεινόμενη Φυσική & Εκφραστική)" },
+        { id: "alloy", name: "Alloy (Ουδέτερη / Ευέλικτη)" },
+        { id: "echo", name: "Echo (Ανδρική)" },
+        { id: "fable", name: "Fable (Εκφραστική)" },
+        { id: "onyx", name: "Onyx (Βαθιά Ανδρική)" },
+        { id: "shimmer", name: "Shimmer (Καθαρή Γυναικεία)" }
+      ],
+      "tts.google_ai_tts": [
+        { id: "kore", name: "✨ Kore (Gemini Speech)" },
+        { id: "laomedeia", name: "Laomedeia (Gemini Speech)" },
+        { id: "zephyr", name: "Zephyr (Gemini Speech)" },
+        { id: "aoede", name: "Aoede (Gemini Speech)" },
+        { id: "puck", name: "Puck (Gemini Speech)" },
+        { id: "fenrir", name: "Fenrir (Gemini Speech)" }
+      ],
+      "tts.piper": [
+        { id: "el_GR-rapunzelina-low", name: "Ραπουνζελίνα Low (Offline)" },
+        { id: "el_GR-rapunzelina-medium", name: "Ραπουνζελίνα Medium (Offline)" },
+        { id: "en_US-amy-low", name: "Amy (en_US-amy-low)" },
+        { id: "en_US-lessac-medium", name: "Lessac (en_US-lessac-medium)" }
+      ]
+    };
+
+    function populateVoices(engine, selectedVoice = "") {
+      const voiceSelect = document.getElementById("tts-voice-select");
+      const customInput = document.getElementById("tts-voice-custom");
+      voiceSelect.innerHTML = "";
+
+      const voices = TTS_VOICE_MAP[engine] || [];
+      let found = false;
+
+      voices.forEach(v => {
+        const opt = document.createElement("option");
+        opt.value = v.id;
+        opt.textContent = v.name;
+        if (selectedVoice && v.id === selectedVoice) {
+          opt.selected = true;
+          found = true;
+        }
+        voiceSelect.appendChild(opt);
+      });
+
+      // Add custom manual option
+      const customOpt = document.createElement("option");
+      customOpt.value = "__custom__";
+      customOpt.textContent = "✏️ Άλλη φωνή (Χειροκίνητη πληκτρολόγηση)...";
+      voiceSelect.appendChild(customOpt);
+
+      if (selectedVoice && !found) {
+        customOpt.selected = true;
+        customInput.value = selectedVoice;
+        customInput.style.display = "block";
+      } else {
+        customInput.style.display = "none";
+        customInput.value = "";
       }
     }
 
     function onTtsEngineChange() {
       const eng = document.getElementById("tts-engine-select").value;
-      const voiceInput = document.getElementById("tts-voice-input");
-      if (eng === "tts.google_cloud") {
-        voiceInput.value = "el-GR-Chirp3-HD-Laomedeia";
-      } else if (eng === "tts.edge_tts_2") {
-        voiceInput.value = "el-GR-NestorasNeural";
-      } else if (eng === "tts.openai_tts_openai") {
-        voiceInput.value = "nova";
-      } else if (eng === "tts.piper") {
-        voiceInput.value = "";
+      populateVoices(eng);
+    }
+
+    function onTtsVoiceChange() {
+      const voiceSelect = document.getElementById("tts-voice-select");
+      const customInput = document.getElementById("tts-voice-custom");
+      if (voiceSelect.value === "__custom__") {
+        customInput.style.display = "block";
+        customInput.focus();
+      } else {
+        customInput.style.display = "none";
       }
+    }
+
+    function getSelectedVoice() {
+      const voiceSelect = document.getElementById("tts-voice-select");
+      if (voiceSelect.value === "__custom__") {
+        return document.getElementById("tts-voice-custom").value.trim();
+      }
+      return voiceSelect.value;
     }
 
     async function saveTtsSettings() {
       const engine = document.getElementById("tts-engine-select").value;
-      const voice = document.getElementById("tts-voice-input").value.trim();
+      const voice = getSelectedVoice();
       try {
         const res = await fetch("api/settings/tts", {
           method: "POST",
