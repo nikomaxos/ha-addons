@@ -972,7 +972,7 @@ SYSTEM_INSTRUCTION = (
     "When you ask the user a question, always call the keep_mic_open tool so the microphone stays open for their answer. "
     "CRITICAL ESCALATION POLICY: You have a tool called `delegate_to_antigravity`. "
     "1. If a query can be answered directly and definitively from current live states returned by `get_ha_states` (e.g. device status, temperatures, lights, car location), answer immediately yourself. "
-    "2. For ANY question requiring historical data (e.g. yesterday, last week, trends, energy consumption over time), complex multi-sensor calculations, external research not in HA states, or if an entity is not found, you MUST IMMEDIATELY call `delegate_to_antigravity`! "
+    "2. For ANY question requiring historical data (e.g. yesterday, last week, trends, energy consumption over time), future weather forecasts or predictions over time (e.g. until when it will rain, tomorrow's forecast, rain duration), complex multi-sensor calculations, external research not in HA states, or if an entity is not found, you MUST IMMEDIATELY call `delegate_to_antigravity` without checking live states! "
     "3. Never guess, never attempt repeated blind searches, and NEVER apologize with 'δεν μπόρεσα να βρω'. If you do not have the complete answer immediately in live states, call `delegate_to_antigravity` so the Heavy Agent can solve it."
 )
 
