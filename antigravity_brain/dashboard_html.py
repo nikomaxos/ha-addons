@@ -182,7 +182,7 @@ def get_dashboard_html() -> str:
         </div>
         <div class="meta-item">
           <span class="meta-label">Μοντέλο:</span>
-          <span id="fast-model" class="meta-val">3.8 flash high</span>
+          <span id="fast-model" class="meta-val">gemini-3.8-flash</span>
         </div>
         <div class="meta-item">
           <span class="meta-label">Χρόνος Απόκρισης:</span>

@@ -76,11 +76,47 @@ install_cli_helpers()
 memory_manager.init_db()
 
 # ---------------------------------------------------------------------------
+# Model mapping & Normalization
+# ---------------------------------------------------------------------------
+MODEL_MAP = {
+    # Clean option names
+    "gemini-3.8-flash": "gemini-3.8-flash",
+    "gemini-3.1-pro": "gemini-3.1-pro-preview",
+    "gpt-4o-mini": "gpt-4o-mini",
+    "gpt-4o": "gpt-4o",
+    "gpt-5": "gpt-5",
+    "o3": "o3",
+
+    # Legacy saved names
+    "3.8 flash high": "gemini-3.8-flash",
+    "3.8 flash": "gemini-3.8-flash",
+    "3.1 pro high": "gemini-3.1-pro-preview",
+    "3.1 pro": "gemini-3.1-pro-preview",
+
+    # Existing internal alias
+    "antigravity": "antigravity-preview-latest",
+}
+
+MODEL_OPTION_ALIASES = {
+    "3.8 flash high": "gemini-3.8-flash",
+    "3.8 flash": "gemini-3.8-flash",
+    "3.1 pro high": "gemini-3.1-pro",
+    "3.1 pro": "gemini-3.1-pro",
+}
+
+def _normalize_model_option(value, default):
+    """Return a clean option name while accepting legacy saved values."""
+    if not isinstance(value, str) or not value.strip():
+        return default
+    normalized = " ".join(value.strip().lower().split())
+    return MODEL_OPTION_ALIASES.get(normalized, value.strip())
+
+# ---------------------------------------------------------------------------
 # Load addon options from HA options.json
 # ---------------------------------------------------------------------------
 OPTIONS_PATH = "/data/options.json"
 DEFAULT_API_KEY = "YOUR_API_KEY_HERE"
-DEFAULT_MODEL = "3.8 flash high"
+DEFAULT_MODEL = "gemini-3.8-flash"
 PORT = 8000
 
 options = {}
@@ -90,7 +126,10 @@ if os.path.exists(OPTIONS_PATH):
 
 # Phase 1: Fast Agent Settings
 fast_agent_engine = options.get("fast_agent_engine", "gemini_api")
-fast_agent_model = options.get("fast_agent_model", options.get("model", DEFAULT_MODEL))
+fast_agent_model = _normalize_model_option(
+    options.get("fast_agent_model", options.get("model", DEFAULT_MODEL)),
+    DEFAULT_MODEL
+)
 fast_agent_thinking = options.get("fast_agent_thinking", "low")
 fast_agent_token = (
     options.get("fast_agent_api_key", "")
@@ -102,7 +141,10 @@ fast_agent_api_key = fast_agent_token
 
 # Phase 2: Heavy Agent Settings
 heavy_agent_engine = options.get("heavy_agent_engine", "codex_fallback")
-heavy_agent_model = options.get("heavy_agent_model", "auto")
+heavy_agent_model = _normalize_model_option(
+    options.get("heavy_agent_model", "auto"),
+    "auto"
+)
 heavy_agent_thinking = options.get("heavy_agent_thinking", "high")
 
 # Legacy compatibility
@@ -178,17 +220,6 @@ check_reauth_flags()
 
 
 
-# ---------------------------------------------------------------------------
-
-# Model mapping
-
-# ---------------------------------------------------------------------------
-
-MODEL_MAP = {
-    "3.8 flash high": "gemini-3.8-flash",
-    "3.1 pro high": "gemini-3.1-pro-preview",
-    "antigravity": "antigravity-preview-latest",
-}
 
 
 
@@ -383,8 +414,10 @@ def _execute_codex_cli(task_description: str, thinking_level: str = "high") -> t
         "--skip-git-repo-check",
         "--dangerously-bypass-approvals-and-sandbox",
         "-o", out_file,
-        full_prompt
     ]
+    if heavy_agent_model and heavy_agent_model != "auto":
+        cmd.extend(["-m", heavy_agent_model])
+    cmd.append(full_prompt)
     try:
         proc = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=180)
         combined_output = (proc.stdout or "") + "\n" + (proc.stderr or "")
@@ -694,9 +727,13 @@ def _run_heavy_agent(task_or_envelope):
         elif limit_or_error:
             print("[Heavy Agent] Antigravity CLI hit limit or unavailable. Falling back to Gemini Pro agent...", flush=True)
 
-    # 3. Fallback to Gemini Pro Agent if CLIs didn't produce a final answer
     if not final_result:
-        fallback_model = MODEL_MAP.get(heavy_agent_model, "gemini-3.1-pro-preview") if heavy_agent_model != "auto" else "gemini-3.1-pro-preview"
+        if heavy_agent_model == "auto":
+            fallback_model = "gemini-3.1-pro-preview"
+        else:
+            fallback_model = MODEL_MAP.get(heavy_agent_model, heavy_agent_model)
+            if fallback_model.startswith("gpt-") or fallback_model in ["o3", "o1"]:
+                fallback_model = "gemini-3.1-pro-preview"
         print(f"[Heavy Agent] Running fallback model: {fallback_model}...", flush=True)
         try:
             MAX_STEPS = 15
@@ -1239,7 +1276,7 @@ async def chat_completions(request: Request):
 
     messages = data.get("messages", [])
 
-    req_model = data.get("model", selected_model)
+    req_model = _normalize_model_option(data.get("model", selected_model), selected_model)
     gemini_model_name = MODEL_MAP.get(req_model, req_model)
 
     if req_model == "heavy_direct":
@@ -1446,7 +1483,7 @@ async def get_api_status():
     curr_tts_engine, curr_tts_voice = get_tts_config()
     return {
         "status": "ok",
-        "version": "3.3.1",
+        "version": "3.3.2",
         "fast_agent": {
             "engine": fast_agent_engine,
             "model": fast_agent_model,
