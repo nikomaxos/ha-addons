@@ -53,10 +53,39 @@ class EndpointFilter(logging.Filter):
 logging.getLogger("uvicorn.access").addFilter(EndpointFilter())
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, HTMLResponse
-from collections import deque
+from collections import deque, OrderedDict
+from dataclasses import dataclass, field
 import memory_manager
 from auth_manager import CodexAuthManager, AntigravityAuthManager
 from dashboard_html import get_dashboard_html
+
+@dataclass
+class ConversationState:
+    messages: list = field(default_factory=list)
+    last_access: float = field(default_factory=time.monotonic)
+
+CONVERSATIONS: OrderedDict[str, ConversationState] = OrderedDict()
+SESSION_TTL_SECONDS = 3600  # 1 hour
+MAX_CONVERSATIONS = 1000
+MAX_MESSAGES_PER_SESSION = 20
+
+def get_or_create_conversation(conv_id: str) -> ConversationState:
+    now = time.monotonic()
+    if len(CONVERSATIONS) > 0:
+        oldest_conv = next(iter(CONVERSATIONS.values()))
+        if now - oldest_conv.last_access > SESSION_TTL_SECONDS or len(CONVERSATIONS) > MAX_CONVERSATIONS:
+            expired_keys = [k for k, v in CONVERSATIONS.items() if (now - v.last_access > SESSION_TTL_SECONDS)]
+            for k in expired_keys:
+                CONVERSATIONS.pop(k, None)
+            while len(CONVERSATIONS) >= MAX_CONVERSATIONS:
+                CONVERSATIONS.popitem(last=False)
+
+    if conv_id not in CONVERSATIONS:
+        CONVERSATIONS[conv_id] = ConversationState()
+    state = CONVERSATIONS[conv_id]
+    state.last_access = now
+    CONVERSATIONS.move_to_end(conv_id)
+    return state
 
 from tool_broker import tool_broker, install_cli_helpers
 from delegation import (
@@ -1000,11 +1029,14 @@ GEMINI_TOOLS = [{
         },
         {
             "name": "store_memory",
-            "description": "Store an important user preference, fact, or instruction into the persistent memory database for future reference. Use this autonomously when the user shares something you should remember.",
+            "description": "Store an important user preference, personal fact, habit, or instruction into the persistent long-term memory database for future reference. MUST be called whenever the user states a personal preference (e.g. favorite food, music) or explicitly asks to remember/store something ('αποθήκευσέ το στη μνήμη σου', 'να το θυμάσαι', 'apothikeyse to'). You MUST resolve pronouns ('το', 'την', 'αυτό') and short answers using the preceding dialogue history to form a complete, standalone Greek statement (e.g. 'Το αγαπημένο φαγητό του χρήστη είναι η φασολάδα.') before calling this tool.",
             "parameters": {
                 "type": "OBJECT",
                 "properties": {
-                    "fact": {"type": "STRING", "description": "The fact or preference to remember."},
+                    "fact": {
+                        "type": "STRING",
+                        "description": "The complete, standalone fact or preference to remember in Greek. Never store unresolved pronouns like 'αυτό' or single words like 'φασολάδα'."
+                    },
                 },
                 "required": ["fact"],
             },
@@ -1049,6 +1081,15 @@ SYSTEM_INSTRUCTION = (
     "Be concise and output natural language suitable for Text-to-Speech (TTS). "
     "Do not include markdown, code blocks, or special formatting in your response. "
     "When you ask the user a question, always call the keep_mic_open tool so the microphone stays open for their answer. "
+    "\n\n"
+    "PERSISTENT LONG-TERM MEMORY POLICY:\n"
+    "1. You have access to the `store_memory` tool. You MUST call `store_memory` whenever:\n"
+    "   - The user shares a personal fact, preference, habit, or favorite thing (e.g., favorite food, music, hobbies, daily routines).\n"
+    "   - The user asks you to save, store, or remember something (e.g., 'αποθήκευσέ το', 'κράτα το στη μνήμη σου', 'να το θυμάσαι για πάντα', 'apothikeyse to sti mnimi sou').\n"
+    "2. COREFERENCE RESOLUTION: When the user refers to previous context using pronouns or short answers (e.g., 'η φασολάδα', 'να την αποθηκεύσεις', 'εννοούσα για τη φασολάδα', 'oxi. thelo na to apothikeyseis'), you MUST resolve what they are referring to using the preceding conversation history.\n"
+    "   Store the fact as a complete, standalone Greek statement (e.g., store_memory(fact='Το αγαπημένο φαγητό του χρήστη είναι η φασολάδα.')). Never pass isolated pronouns like 'το' or single words like 'φασολάδα'.\n"
+    "3. Once `store_memory` succeeds, warmly confirm to the user in Greek that you saved it to your permanent memory.\n"
+    "\n\n"
     "CRITICAL ESCALATION POLICY: You have a tool called `delegate_to_antigravity`. "
     "1. If a query can be answered directly and definitively from current live states returned by `get_ha_states` (e.g. device status, temperatures, lights, car location), answer immediately yourself. "
     "2. For ANY question requiring historical data (e.g. yesterday, last week, trends, energy consumption over time), future weather forecasts or predictions over time (e.g. until when it will rain, tomorrow's forecast, rain duration), complex multi-sensor calculations, external research not in HA states, or if an entity is not found, you MUST IMMEDIATELY call `delegate_to_antigravity` without checking live states! "
@@ -1060,49 +1101,33 @@ SYSTEM_INSTRUCTION = (
 
 
 def _build_gemini_contents(messages: list) -> tuple:
-
     """Convert OpenAI-style messages to Gemini contents format.
-
-
-
     Returns (system_instruction, contents).
-
+    Ensures strictly alternating 'user' and 'model' turns required by Gemini.
     """
-
     system_parts = []
-
     contents = []
 
-
-
     for msg in messages:
-
         role = msg.get("role", "user")
-
         text = msg.get("content", "")
-
         if not text:
-
             continue
 
-
-
         if role == "system":
-
             system_parts.append(text)
+            continue
 
-        elif role == "assistant":
+        gemini_role = "model" if role == "assistant" else "user"
 
-            contents.append({"role": "model", "parts": [{"text": text}]})
-
+        if contents and contents[-1]["role"] == gemini_role:
+            contents[-1]["parts"][0]["text"] += f"\n{text}"
         else:
-
-            contents.append({"role": "user", "parts": [{"text": text}]})
-
-
+            if not contents and gemini_role != "user":
+                continue
+            contents.append({"role": gemini_role, "parts": [{"text": text}]})
 
     system_text = "\n".join(system_parts) if system_parts else None
-
     return system_text, contents
 
 
@@ -1112,6 +1137,7 @@ def _build_gemini_contents(messages: list) -> tuple:
 def _execute_tool_calls(response, model_name, chat_history, config, user_prompt: str = "", is_voice: bool = True):
     MAX_ROUNDS = 5
     current_response = response
+    mic_opened = False
     
     for round_idx in range(MAX_ROUNDS):
         candidate = current_response.candidates[0]
@@ -1131,8 +1157,8 @@ def _execute_tool_calls(response, model_name, chat_history, config, user_prompt:
                         import threading
                         t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,), kwargs={"is_voice": is_voice})
                         t_thread.start()
-                        return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω."
-                    return "Συγγνώμη, παρακαλώ επαναλάβετε."
+                        return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω.", mic_opened
+                    return "Συγγνώμη, παρακαλώ επαναλάβετε.", mic_opened
                 
                 lower_t = t.lower()
                 if any(phrase in lower_t for phrase in ["δεν μπόρεσα να βρω", "δεν βρήκα", "δεν γνωρίζω", "δεν μπορώ να βρω", "δυστυχώς δεν"]) and user_prompt:
@@ -1140,17 +1166,17 @@ def _execute_tool_calls(response, model_name, chat_history, config, user_prompt:
                     import threading
                     t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,), kwargs={"is_voice": is_voice})
                     t_thread.start()
-                    return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω."
+                    return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω.", mic_opened
 
-                return t
+                return t, mic_opened
             except ValueError:
                 if user_prompt:
                     print(f"[Fallback] ValueError on response.text, auto-delegating to Heavy Agent: {user_prompt}")
                     import threading
                     t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,), kwargs={"is_voice": is_voice})
                     t_thread.start()
-                    return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω."
-                return "(No response generated)"
+                    return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω.", mic_opened
+                return "(No response generated)", mic_opened
         
         function_responses = []
         for fc in function_calls:
@@ -1158,6 +1184,8 @@ def _execute_tool_calls(response, model_name, chat_history, config, user_prompt:
             fn_args = dict(fc.args) if fc.args else {}
             if fn_name == "delegate_to_antigravity":
                 fn_args["is_voice"] = is_voice
+            if fn_name == "keep_mic_open":
+                mic_opened = True
             
             print(f"[Tool Call] {fn_name}({json.dumps(fn_args, ensure_ascii=False)[:200]})")
             
@@ -1174,7 +1202,7 @@ def _execute_tool_calls(response, model_name, chat_history, config, user_prompt:
             
             if fn_name == "delegate_to_antigravity":
                 print("[System] Short-circuiting response for delegate_to_antigravity to prevent LLM apology.")
-                return fn_args.get("immediate_reply", "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω.")
+                return fn_args.get("immediate_reply", "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω."), False
 
             function_responses.append({
                 "function_response": {
@@ -1205,8 +1233,8 @@ def _execute_tool_calls(response, model_name, chat_history, config, user_prompt:
                 import threading
                 t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,), kwargs={"is_voice": is_voice})
                 t_thread.start()
-                return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω."
-            return final_text
+                return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω.", mic_opened
+            return final_text, mic_opened
     except Exception:
         pass
 
@@ -1215,7 +1243,9 @@ def _execute_tool_calls(response, model_name, chat_history, config, user_prompt:
         import threading
         t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,), kwargs={"is_voice": is_voice})
         t_thread.start()
-        return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω."
+        return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω.", mic_opened
+
+    return "(No response generated)", mic_opened
 
 def _get_openai_tools():
     """Convert GEMINI_TOOLS function declarations into OpenAI tools schema."""
@@ -1265,6 +1295,7 @@ def _execute_openai_chat(messages, system_prompt, model_name, token, user_prompt
     if not req_model or "flash" in req_model.lower() or "gemini" in req_model.lower():
         req_model = "gpt-6-luna"
 
+    mic_opened = False
     for round_idx in range(5):
         payload = {
             "model": req_model,
@@ -1284,7 +1315,7 @@ def _execute_openai_chat(messages, system_prompt, model_name, token, user_prompt
 
         tool_calls = choice.get("tool_calls", [])
         if not tool_calls:
-            return choice.get("content", "")
+            return choice.get("content", ""), mic_opened
 
         for tc in tool_calls:
             fn_name = tc["function"]["name"]
@@ -1294,13 +1325,15 @@ def _execute_openai_chat(messages, system_prompt, model_name, token, user_prompt
                 fn_args = {}
             if fn_name == "delegate_to_antigravity":
                 fn_args["is_voice"] = is_voice
+            if fn_name == "keep_mic_open":
+                mic_opened = True
             print(f"[OpenAI Tool Call] {fn_name}({json.dumps(fn_args, ensure_ascii=False)[:200]})")
             handler = TOOL_DISPATCH.get(fn_name)
             res_val = handler(fn_args) if handler else f"Unknown tool: {fn_name}"
 
             if fn_name == "delegate_to_antigravity":
                 print("[System] Short-circuiting response for delegate_to_antigravity to prevent LLM apology.")
-                return fn_args.get("immediate_reply", "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω.")
+                return fn_args.get("immediate_reply", "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω."), False
 
             openai_msgs.append({
                 "role": "tool",
@@ -1308,7 +1341,7 @@ def _execute_openai_chat(messages, system_prompt, model_name, token, user_prompt
                 "content": str(res_val)
             })
 
-    return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω."
+    return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω.", mic_opened
 
 
 @app.post("/v1/chat/completions")
@@ -1319,6 +1352,7 @@ async def chat_completions(request: Request):
 
     messages = data.get("messages", [])
     is_voice = data.get("is_voice", False)
+    conv_id = data.get("conversation_id") or uuid.uuid4().hex
 
     req_model = _normalize_model_option(data.get("model", selected_model), selected_model)
     gemini_model_name = MODEL_MAP.get(req_model, req_model)
@@ -1336,6 +1370,7 @@ async def chat_completions(request: Request):
                 t.start()
             return {
                 "id": "chatcmpl-heavy",
+                "conversation_id": conv_id,
                 "object": "chat.completion",
                 "choices": [{
                     "message": {
@@ -1356,6 +1391,7 @@ async def chat_completions(request: Request):
 
             return {
                 "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
+                "conversation_id": conv_id,
                 "object": "chat.completion",
                 "choices": [{
                     "message": {
@@ -1366,63 +1402,55 @@ async def chat_completions(request: Request):
             }
 
     if not api_key:
-
         return JSONResponse(
-
             status_code=500,
-
             content={"error": {"message": "Gemini API key not configured.", "type": "server_error"}},
-
         )
 
+    # Multi-turn conversation state tracking per conversation_id
+    conv_state = get_or_create_conversation(conv_id)
+    if len(messages) > 1:
+        conv_state.messages = list(messages[-MAX_MESSAGES_PER_SESSION:])
+    elif messages:
+        for msg in messages:
+            conv_state.messages.append(msg)
+        conv_state.messages = conv_state.messages[-MAX_MESSAGES_PER_SESSION:]
 
+    effective_messages = list(conv_state.messages) if conv_state.messages else messages
 
-    system_instruction, contents = _build_gemini_contents(messages)
-
-    
+    system_instruction, contents = _build_gemini_contents(effective_messages)
 
     # Extract user's latest message to search memories
-
     user_text = ""
-
-    for msg in reversed(messages):
-
+    for msg in reversed(effective_messages):
         if msg.get("role") == "user":
-
             user_text = msg.get("content", "")
-
             break
 
-            
+    # If user_text is very short (e.g. "φασολάδα" or "η φασολάδα"), include prior context in memory query
+    search_query = user_text
+    if len(user_text.split()) <= 2 and len(effective_messages) >= 3:
+        for prev_msg in reversed(effective_messages[:-1]):
+            if prev_msg.get("role") == "user":
+                search_query = f"{prev_msg.get('content', '')} {user_text}"
+                break
 
     facts = []
-
-    if user_text:
-
-        facts = memory_manager.search_memories(user_text, api_key)
-
-        
+    if search_query:
+        facts = memory_manager.search_memories(search_query, api_key)
 
     memory_context = ""
-
     if facts:
-
-        memory_context = "System context from memory:\n- " + "\n- ".join(facts)
-
-
+        memory_context = "System context from persistent memory:\n- " + "\n- ".join(facts)
 
     # Merge system instructions
-
     final_system = SYSTEM_INSTRUCTION
-
     if system_instruction:
-
         final_system = system_instruction + "\n\n" + SYSTEM_INSTRUCTION
-
     if memory_context:
-
         final_system += "\n\n" + memory_context
 
+    mic_opened = False
     try:
         # Smart engine auto-routing: never fails even if user picked mismatched engine/model
         effective_model = req_model or fast_agent_model
@@ -1438,7 +1466,7 @@ async def chat_completions(request: Request):
             use_openai = (fast_agent_engine == "openai_api")
 
         if use_openai:
-            content = _execute_openai_chat(messages, final_system, effective_model, fast_agent_api_key, user_text, is_voice=is_voice)
+            content, mic_opened = _execute_openai_chat(effective_messages, final_system, effective_model, fast_agent_api_key, user_text, is_voice=is_voice)
         else:
             config = {
                 "system_instruction": final_system,
@@ -1458,7 +1486,7 @@ async def chat_completions(request: Request):
                 contents=chat_history,
                 config=config
             )
-            content = _execute_tool_calls(response, gemini_model_name, chat_history, config, user_prompt=user_text, is_voice=is_voice)
+            content, mic_opened = _execute_tool_calls(response, gemini_model_name, chat_history, config, user_prompt=user_text, is_voice=is_voice)
 
     except Exception as e:
         print(f"Error calling {fast_agent_engine}: {e}")
@@ -1471,48 +1499,36 @@ async def chat_completions(request: Request):
         else:
             content = f"Error calling {fast_agent_engine}: {e}"
 
-
+    # Record assistant turn in session state
+    conv_state.messages.append({
+        "role": "assistant",
+        "content": content
+    })
+    conv_state.messages = conv_state.messages[-MAX_MESSAGES_PER_SESSION:]
 
     return {
-
         "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
-
+        "conversation_id": conv_id,
         "object": "chat.completion",
-
         "created": int(time.time()),
-
         "model": gemini_model_name,
-
         "choices": [
-
             {
-
                 "index": 0,
-
                 "message": {
-
                     "role": "assistant",
-
                     "content": content,
-
+                    "continue_conversation": mic_opened,
                 },
-
                 "finish_reason": "stop",
-
             }
-
         ],
-
+        "continue_conversation": mic_opened,
         "usage": {
-
             "prompt_tokens": 0,
-
             "completion_tokens": 0,
-
             "total_tokens": 0,
-
         },
-
     }
 
 
