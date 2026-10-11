@@ -85,7 +85,12 @@ MODEL_MAP = {
     "gemini-2.5-flash": "gemini-2.5-flash",
     "gemini-2.0-flash": "gemini-2.0-flash",
 
-    # OpenAI modern models
+    # OpenAI modern models (2026 generation)
+    "gpt-6-luna": "gpt-6-luna",
+    "gpt-6.1-sol": "gpt-6.1-sol",
+    "gpt-6-astra": "gpt-6-astra",
+
+    # OpenAI other models
     "o3-mini": "o3-mini",
     "gpt-4o": "gpt-4o",
     "gpt-4o-mini": "gpt-4o-mini",
@@ -1250,7 +1255,7 @@ def _execute_openai_chat(messages, system_prompt, model_name, token, user_prompt
 
     req_model = model_name
     if not req_model or "flash" in req_model.lower() or "gemini" in req_model.lower():
-        req_model = "gpt-4o-mini"
+        req_model = "gpt-6-luna"
 
     for round_idx in range(5):
         payload = {
@@ -1522,7 +1527,7 @@ async def get_api_status():
     curr_tts_engine, curr_tts_voice = get_tts_config()
     return {
         "status": "ok",
-        "version": "3.3.4",
+        "version": "3.3.5",
         "fast_agent": {
             "engine": fast_agent_engine,
             "model": fast_agent_model,
@@ -1661,7 +1666,7 @@ def health_check():
 
 
 if __name__ == "__main__":
-    print(f"Starting Antigravity Brain v3.3.4")
+    print(f"Starting Antigravity Brain v3.3.5")
     print(f"  Phase 1 (Fast Agent): engine={fast_agent_engine}, model={fast_agent_model}, thinking={fast_agent_thinking}")
     print(f"  Phase 2 (Heavy Agent): engine={heavy_agent_engine}, thinking={heavy_agent_thinking}")
     print(f"  Port: {PORT}")

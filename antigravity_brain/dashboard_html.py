@@ -584,11 +584,12 @@ def get_dashboard_html() -> str:
         { id: "gemini-2.0-flash", name: "gemini-2.0-flash (Γενικής Χρήσης)" }
       ],
       "openai_api": [
-        { id: "o3-mini", name: "🚀 o3-mini (Νέο State-of-the-Art Fast Reasoning)" },
-        { id: "gpt-4o", name: "🌟 gpt-4o (Flagship Omni - Πολυτροπικό)" },
-        { id: "gpt-4o-mini", name: "⚡ gpt-4o-mini (Ελαφρύ & Ταχύτατο)" },
-        { id: "gpt-4.5-preview", name: "🎨 gpt-4.5-preview (Μεγάλο Δημιουργικό Flagship)" },
-        { id: "o1", name: "🧠 o1 (Deep Reasoning Model)" }
+        { id: "gpt-6-luna", name: "🌙 gpt-6-luna (GPT-6 Luna - Ταχύτατο & Οικονομικό για HA)" },
+        { id: "gpt-6.1-sol", name: "☀️ gpt-6.1-sol (GPT-6.1 Sol - Προηγμένη Κατανόηση & Εργαλεία)" },
+        { id: "gpt-6-astra", name: "✨ gpt-6-astra (GPT-6 Astra - Κορυφαίο Flagship & Deep Reasoning)" },
+        { id: "o3-mini", name: "🚀 o3-mini (Reasoning)" },
+        { id: "gpt-4o", name: "🌟 gpt-4o (Flagship Omni)" },
+        { id: "gpt-4o-mini", name: "⚡ gpt-4o-mini (Ελαφρύ)" }
       ]
     };
 
