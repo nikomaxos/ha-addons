@@ -204,3 +204,19 @@
 - Updated server.py to include a new store_memory tool for the Fast and Heavy Agents.
 - Modified the chat_completions endpoint to automatically retrieve relevant context using cosine similarity based on the user's latest prompt, injecting it into the agent's system instructions.
 - Tested SQLite connectivity and RAG retrieval successfully.
+
+ -   2 0 2 6 - 0 9 - 2 9 :   U p d a t e d   A n t i g r a v i t y   B r a i n   t o   s p l i t   A I   o u t p u t   i n t o   m a r k d o w n _ r e s p o n s e   ( f o r   t e x t   U I )   a n d   s p o k e n _ r e s p o n s e   ( w i t h o u t   m a r k d o w n / a s t e r i s k s ) . 
+ -   U p d a t e d   F a s t   A g e n t   t o   r e g e x   s t r i p   m a r k d o w n   f o r   c l e a n e r   T T S . 
+ -   U p d a t e d   a u t o m a t i o n s   t o   s u p p o r t   d e e p - l i n k i n g   p u s h   n o t i f i c a t i o n s   t o   p e r s i s t e n t   n o t i f i c a t i o n s . 
+ -   S w i t c h e d   J a r v i s   L i g h t   a n d   J a r v i s   H e a v y   p i p e l i n e s   t o   u s e   H D   V o i c e   ( e l - G R - C h i r p 3 - H D - L a o m e d e i a   v i a   G o o g l e   C l o u d   T T S ) . 
+  
+ 
+### 2026-10-11: Antigravity Brain v3.0.0 Architecture Upgrade
+- Upgraded Add-on to v3.0.0 with dedicated Phase 1 (Fast Agent) and Phase 2 (Heavy Agent) configuration options.
+- Phase 1: Fast Agent handles instant voice answers, HA device control, and status queries.
+- Phase 2: Heavy Agent implements Codex CLI and Antigravity CLI fallback layers, seamlessly degrading to Gemini 3.1 Pro preview on limit/missing binary.
+- Added OAuth URL detection: any CLI authentication link is parsed and formatted prominently into Add-on logs for browser login.
+- Added dual-response format (markdown_response for Home Assistant UI and persistent notification, spoken_response for natural Greek TTS speech without markdown/asterisks).
+- Updated model mappings: mapped 3.8 flash high to gemini-3.8-flash and 3.1 pro high to gemini-3.1-pro-preview.
+- Updated Dockerfile with Node.js, npm, and jq support for CLI tool execution.
+- Verified end-to-end functionality via Home Assistant REST Conversation API and docker container logs.
