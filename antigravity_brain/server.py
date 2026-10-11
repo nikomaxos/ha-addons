@@ -356,7 +356,8 @@ def _execute_codex_cli(task_description: str, thinking_level: str = "high") -> t
     if not codex_mgr.is_authenticated:
         if not codex_mgr.check_status():
             print("[Heavy Agent - Codex] Codex CLI is not authenticated! Triggering autonomous auth flow...", flush=True)
-            codex_mgr.start_auth_flow()
+            if codex_mgr.auth_state in ["expired", "idle"] or not codex_mgr.auth_pending:
+                codex_mgr.start_auth_flow(force=True)
             return "Απαιτείται σύνδεση του Codex CLI στο Home Assistant.", True
 
     out_file = "/tmp/codex_out.txt"
@@ -774,13 +775,13 @@ def _run_heavy_agent(task_description: str):
 
 
 def tool_delegate_to_antigravity(task_description: str, immediate_reply: str = "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο.") -> str:
-
     """Delegate a complex task to the Antigravity heavy agent."""
-
     import threading
+    if not codex_mgr.is_authenticated and (codex_mgr.auth_state in ["expired", "idle"] or not codex_mgr.auth_pending):
+        print("[Delegate] Codex CLI is unauthenticated. Triggering autonomous device code flow...", flush=True)
+        codex_mgr.start_auth_flow(force=True)
 
     threading.Thread(target=_run_heavy_agent, args=(task_description,), daemon=True).start()
-
     return "I have delegated the task to the Heavy Agent. I will notify you when it's done."
 
 
@@ -1348,7 +1349,7 @@ async def get_api_status():
     codex_mgr.check_status()
     return {
         "status": "ok",
-        "version": "3.1.0",
+        "version": "3.1.1",
         "fast_agent": {
             "engine": fast_agent_engine,
             "model": fast_agent_model,
@@ -1359,13 +1360,7 @@ async def get_api_status():
             "engine": heavy_agent_engine,
             "model": heavy_agent_model,
             "thinking": heavy_agent_thinking,
-            "codex": {
-                "available": bool(codex_mgr.codex_bin),
-                "authenticated": codex_mgr.is_authenticated,
-                "auth_pending": codex_mgr.auth_pending,
-                "auth_url": codex_mgr.auth_url,
-                "device_code": codex_mgr.device_code
-            }
+            "codex": codex_mgr.get_status_dict()
         },
         "recent_tasks": list(recent_tasks)
     }
@@ -1410,7 +1405,7 @@ def health_check():
 
 
 if __name__ == "__main__":
-    print(f"Starting Antigravity Brain v3.1.0")
+    print(f"Starting Antigravity Brain v3.1.1")
     print(f"  Phase 1 (Fast Agent): engine={fast_agent_engine}, model={fast_agent_model}, thinking={fast_agent_thinking}")
     print(f"  Phase 2 (Heavy Agent): engine={heavy_agent_engine}, thinking={heavy_agent_thinking}")
     print(f"  Port: {PORT}")

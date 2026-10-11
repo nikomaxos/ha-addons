@@ -97,9 +97,30 @@ def get_dashboard_html() -> str:
         <button class="btn btn-outline" onclick="copyCode()">📋 Αντιγραφή</button>
         <a id="auth-link" href="https://auth.openai.com/codex/device" target="_blank" class="btn btn-warning">🚀 Άνοιγμα Σελίδας Έγκρισης</a>
       </div>
-      <div style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted);">
-        <span class="pulse" style="background: var(--warning);"></span>
-        <span>Αναμονή για έγκριση στον περιηγητή... Η σελίδα και η ειδοποίηση στο Home Assistant θα ενημερωθούν αυτόματα!</span>
+      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; font-size: 13px; color: var(--text-muted);">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span class="pulse" style="background: var(--warning);"></span>
+          <span>Αναμονή για έγκριση στον περιηγητή...</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <span>⏳ Υπολειπόμενος χρόνος:</span>
+          <span id="auth-countdown" style="font-family: monospace; font-size: 14px; font-weight: 700; color: #fbbf24; background: rgba(251, 191, 36, 0.12); padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(251, 191, 36, 0.3);">15:00</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Codex Auth Expired Alert Banner (Shown dynamically when auth is expired) -->
+    <div id="expired-box" class="auth-banner" style="display: none; background: rgba(239, 68, 68, 0.08); border-color: rgba(239, 68, 68, 0.4);">
+      <div class="auth-title" style="color: var(--error);">
+        <span>⚠️</span>
+        <span>Ο Κωδικός Codex Έληξε (15 λεπτά)</span>
+      </div>
+      <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 14px;">
+        Ο προηγούμενος κωδικός συσκευής OpenAI έχει υπερβεί το όριο των 15 λεπτών. Πατήστε το κουμπί για άμεση παραγωγή νέου κωδικού:
+      </p>
+      <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+        <button id="btn-regen" class="btn btn-warning" onclick="triggerAuth()">🔄 Παραγωγή Νέου Κωδικού</button>
+        <span style="font-size: 13px; color: var(--text-muted);">💡 Η ανανέωση ξεκινά αυτόματα και με οποιοδήποτε φωνητικό αίτημα στον Assist.</span>
       </div>
     </div>
 
@@ -169,6 +190,7 @@ def get_dashboard_html() -> str:
 
   <script>
     let currentCode = "";
+    let remainingSec = 0;
 
     async function fetchStatus() {
       try {
@@ -183,28 +205,42 @@ def get_dashboard_html() -> str:
         // Codex Auth Status
         const codex = data.heavy_agent.codex;
         const authBox = document.getElementById("auth-box");
+        const expiredBox = document.getElementById("expired-box");
         const heavyStatus = document.getElementById("heavy-status");
         const authLabel = document.getElementById("codex-auth-label");
 
-        if (codex.auth_pending && codex.device_code) {
+        if (codex.auth_state === "pending" || (codex.auth_pending && codex.device_code)) {
           authBox.style.display = "block";
-          document.getElementById("auth-code").textContent = codex.device_code;
+          expiredBox.style.display = "none";
+          document.getElementById("auth-code").textContent = codex.device_code || "----";
           currentCode = codex.device_code;
           if (codex.auth_url) {
             document.getElementById("auth-link").href = codex.auth_url;
           }
+          remainingSec = codex.remaining_seconds || 0;
+          updateTimerDisplay();
+
           heavyStatus.className = "badge badge-warning";
           heavyStatus.textContent = "Απαιτείται Σύνδεση";
           authLabel.textContent = "Εκκρεμεί Έγκριση";
           authLabel.style.color = "var(--warning)";
-        } else if (codex.authenticated) {
+        } else if (codex.auth_state === "expired") {
           authBox.style.display = "none";
+          expiredBox.style.display = "block";
+          heavyStatus.className = "badge badge-warning";
+          heavyStatus.textContent = "Κωδικός Έληξε";
+          authLabel.textContent = "Έληξε (15 λεπτά)";
+          authLabel.style.color = "var(--warning)";
+        } else if (codex.authenticated || codex.auth_state === "authenticated") {
+          authBox.style.display = "none";
+          expiredBox.style.display = "none";
           heavyStatus.className = "badge badge-success";
           heavyStatus.textContent = "Συνδεδεμένο";
           authLabel.textContent = "Ενεργό (ChatGPT)";
           authLabel.style.color = "var(--success)";
         } else {
           authBox.style.display = "none";
+          expiredBox.style.display = "none";
           heavyStatus.className = "badge badge-error";
           heavyStatus.textContent = "Μη Συνδεδεμένο";
           authLabel.textContent = "Αποσυνδεδεμένο";
@@ -230,6 +266,13 @@ def get_dashboard_html() -> str:
       }
     }
 
+    function updateTimerDisplay() {
+      const mins = Math.floor(remainingSec / 60).toString().padStart(2, '0');
+      const secs = (remainingSec % 60).toString().padStart(2, '0');
+      const el = document.getElementById("auth-countdown");
+      if (el) el.textContent = `${mins}:${secs}`;
+    }
+
     function copyCode() {
       if (!currentCode) return;
       navigator.clipboard.writeText(currentCode).then(() => {
@@ -240,14 +283,31 @@ def get_dashboard_html() -> str:
     }
 
     async function triggerAuth() {
-      if (!confirm("Θέλετε να ξεκινήσει νέα διαδικασία σύνδεσης για το Codex CLI;")) return;
       try {
-        const res = await fetch("api/auth/codex/start", { method: "POST" });
+        const btnRegen = document.getElementById("btn-regen");
+        const btnReauth = document.getElementById("btn-reauth");
+        if (btnRegen) { btnRegen.disabled = true; btnRegen.textContent = "⏳ Παραγωγή..."; }
+        if (btnReauth) { btnReauth.disabled = true; }
+        
+        await fetch("api/auth/codex/start", { method: "POST" });
         await fetchStatus();
       } catch (e) {
         alert("Σφάλμα έναρξης σύνδεσης: " + e);
+      } finally {
+        const btnRegen = document.getElementById("btn-regen");
+        const btnReauth = document.getElementById("btn-reauth");
+        if (btnRegen) { btnRegen.disabled = false; btnRegen.textContent = "🔄 Παραγωγή Νέου Κωδικού"; }
+        if (btnReauth) { btnReauth.disabled = false; }
       }
     }
+
+    // Local countdown ticker
+    setInterval(() => {
+      if (remainingSec > 0) {
+        remainingSec--;
+        updateTimerDisplay();
+      }
+    }, 1000);
 
     // Initial fetch and auto-refresh loop
     fetchStatus();
