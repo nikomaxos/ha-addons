@@ -328,8 +328,33 @@ def tool_get_ha_states(entity_id: str = "") -> str:
         return f"Error getting states: {e}"
 
 
-
-
+def tool_get_weather_forecast(entity_id: str = "weather.forecast_home", type: str = "hourly") -> str:
+    """Get weather forecast (hourly, daily) from Home Assistant."""
+    if not SUPERVISOR_TOKEN:
+        return "Error: SUPERVISOR_TOKEN not available."
+    if not entity_id:
+        entity_id = "weather.forecast_home"
+    if not type:
+        type = "hourly"
+    url = f"{SUPERVISOR_URL}/services/weather/get_forecasts?return_response=true"
+    try:
+        resp = http_requests.post(
+            url,
+            headers=_supervisor_headers(),
+            json={"entity_id": entity_id, "type": type},
+            timeout=10
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            forecast_data = data.get("service_response", {}).get(entity_id, {}).get("forecast", [])
+            if not forecast_data:
+                forecast_data = data.get(entity_id, {}).get("forecast", [])
+            if forecast_data:
+                return json.dumps(forecast_data[:12], ensure_ascii=False, indent=2)
+            return json.dumps(data, ensure_ascii=False)
+        return f"Error: HTTP {resp.status_code} - {resp.text[:300]}"
+    except Exception as e:
+        return f"Error getting weather forecast: {e}"
 
 
 def tool_search_radio_browser(query: str) -> str:
@@ -712,36 +737,19 @@ def _run_heavy_agent(task_description: str):
 
                 },
 
-                GEMINI_TOOLS[0]["function_declarations"][0], # call_ha_service
-
-                GEMINI_TOOLS[0]["function_declarations"][1], # get_ha_states
-
-                GEMINI_TOOLS[0]["function_declarations"][2], # search_web
-
-                GEMINI_TOOLS[0]["function_declarations"][5], # store_memory
-
+                *[f for f in GEMINI_TOOLS[0]["function_declarations"] if f["name"] in ["call_ha_service", "get_ha_states", "get_weather_forecast", "search_web", "store_memory"]]
             ]
-
         }
-
     ]
-
     
-
     heavy_dispatch = {
-
         "execute_shell": lambda args: tool_execute_shell(args.get("command", "")),
-
         "query_database": lambda args: tool_query_database(args.get("query", "")),
-
         "call_ha_service": lambda args: tool_call_ha_service(args.get("domain", ""), args.get("service", ""), args.get("service_data")),
-
         "get_ha_states": lambda args: tool_get_ha_states(args.get("entity_id", "")),
-
+        "get_weather_forecast": lambda args: tool_get_weather_forecast(args.get("entity_id", "weather.forecast_home"), args.get("type", "hourly")),
         "search_web": lambda args: tool_search_web(args.get("query", "")),
-
         "store_memory": lambda args: tool_store_memory(args.get("fact", "")),
-
     }
 
 
@@ -972,117 +980,73 @@ GEMINI_TOOLS = [{
         },
 
         {
-
+            "name": "get_weather_forecast",
+            "description": "Get weather forecast (hourly, daily) from Home Assistant. Use this when the user asks about upcoming weather, rain forecast, temperatures later today or this week.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "entity_id": {"type": "STRING", "description": "Weather entity ID (default: 'weather.forecast_home')."},
+                    "type": {"type": "STRING", "description": "Forecast type: 'hourly' or 'daily' (default: 'hourly')."}
+                }
+            }
+        },
+        {
             "name": "search_web",
-
             "description": "Search the web for simple facts only (weather, current events). DO NOT use this for deep research, local places, restaurants, or menus! If the user asks for restaurants, places, or complex local info, DO NOT call search_web. You MUST call delegate_to_antigravity instead.",
-
             "parameters": {
-
                 "type": "OBJECT",
-
                 "properties": {
-
                     "query": {"type": "STRING", "description": "The search query."},
-
                 },
-
                 "required": ["query"],
-
             },
-
         },
-
         {
-
             "name": "keep_mic_open",
-
             "description": "Keep the microphone open for a follow-up conversation. Call this when you ask the user a question and expect an answer.",
-
             "parameters": {
-
                 "type": "OBJECT",
-
                 "properties": {},
-
             },
-
         },
-
         {
-
             "name": "delegate_to_antigravity",
-
             "description": "Delegate a complex or heavy task to the Antigravity heavy agent. It will send a persistent notification to HA.",
-
             "parameters": {
-
                 "type": "OBJECT",
-
                 "properties": {
-
                     "task_description": {"type": "STRING", "description": "Description of the task to delegate."},
-
                     "immediate_reply": {"type": "STRING", "description": "A natural, contextual sentence you must speak to the user right now to confirm you are working on it (e.g. 'Έγινε, βάζω υπενθύμιση', 'Μισό λεπτό να ελέγξω'). Must be in the user's language."}
-
                 },
-
                 "required": ["task_description", "immediate_reply"],
-
             },
-
         },
-
         {
-
             "name": "store_memory",
-
             "description": "Store an important user preference, fact, or instruction into the persistent memory database for future reference. Use this autonomously when the user shares something you should remember.",
-
             "parameters": {
-
                 "type": "OBJECT",
-
                 "properties": {
-
                     "fact": {"type": "STRING", "description": "The fact or preference to remember."},
-
                 },
-
                 "required": ["fact"],
-
             },
-
         },
-
     ]
-
 }]
 
-
-
 # Map tool names to implementations
-
 TOOL_DISPATCH = {
-
     "query_database": lambda args: tool_query_database(args.get("query", "")),
-
     "call_ha_service": lambda args: tool_call_ha_service(
-
         args.get("domain", ""), args.get("service", ""), args.get("service_data")
-
     ),
-
     "get_ha_states": lambda args: tool_get_ha_states(args.get("entity_id", "")),
-
+    "get_weather_forecast": lambda args: tool_get_weather_forecast(args.get("entity_id", "weather.forecast_home"), args.get("type", "hourly")),
     "search_web": lambda args: tool_search_web(args.get("query", "")),
-
     "keep_mic_open": lambda args: tool_keep_mic_open(),
-
     "delegate_to_antigravity": lambda args: tool_delegate_to_antigravity(args.get("task_description", ""), args.get("immediate_reply", "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο.")),
-
     "store_memory": lambda args: tool_store_memory(args.get("fact", "")),
-
 }
 
 
@@ -1098,29 +1062,18 @@ app = FastAPI(title="Antigravity Brain", version="2.0.0")
 
 
 SYSTEM_INSTRUCTION = (
-
     "You are the Brain of a smart Home Assistant running on a local server (Fast Agent). "
-
-    "You have tools to control devices, get current states, search the web, and more. "
-
+    "You have tools to control devices, get current states, check weather forecasts, search the web, and more. "
     "CRITICAL: Always respond in Greek (Ελληνικά), no matter what. "
-
     "Be concise and output natural language suitable for Text-to-Speech (TTS). "
-
     "Do not include markdown, code blocks, or special formatting in your response. "
-
     "When you ask the user a question, always call the keep_mic_open tool so the microphone stays open for their answer. "
-
     "CRITICAL: You have a tool called `delegate_to_antigravity`. The user expects to speak naturally and never be trained on how to talk to you. "
-
     "If a question requires historical data, analytics, or complex logic, you MUST call `delegate_to_antigravity`. However, if you can find the current status or location of an entity (like a car, light, or sensor) directly in the data returned by `get_ha_states`, answer immediately yourself! "
-
+    "For weather forecast or rain queries at home, use the `get_weather_forecast` tool. If the user asks about weather in other locations or external queries, and `search_web` does not return a clear answer on the first try, you MUST call `delegate_to_antigravity`. "
     "If you try to use `search_web` to answer a question and you cannot find the answer, you MUST call `delegate_to_antigravity` so the Heavy Agent can do a deep search. "
-
     "If the user asks to play a specific radio station, FIRST use the `search_radio_browser` tool to find the direct audio stream URL. If you find it, play it using `call_ha_service` on the media player (set media_content_type to 'music' and media_content_id to the stream URL). If you CANNOT find it via `search_radio_browser`, DO NOT use `search_web`. IMMEDIATELY call `delegate_to_antigravity`! "
-
-    "you MUST NOT just say you can't do it. Instead, you MUST automatically call the `delegate_to_antigravity` tool to trigger the Antigravity flow."
-
+    "You MUST NEVER just say you can't do it or apologize with 'δεν μπόρεσα να βρω'. Instead, you MUST automatically call the `delegate_to_antigravity` tool to trigger the Antigravity flow."
 )
 
 
@@ -1177,11 +1130,11 @@ def _build_gemini_contents(messages: list) -> tuple:
 
 
 
-def _execute_tool_calls(response, model_name, chat_history, config):
+def _execute_tool_calls(response, model_name, chat_history, config, user_prompt: str = ""):
     MAX_ROUNDS = 5
     current_response = response
     
-    for _ in range(MAX_ROUNDS):
+    for round_idx in range(MAX_ROUNDS):
         candidate = current_response.candidates[0]
         function_calls = []
         
@@ -1194,9 +1147,30 @@ def _execute_tool_calls(response, model_name, chat_history, config):
             try:
                 t = current_response.text
                 if not t or t.strip() == "":
+                    if user_prompt:
+                        print(f"[Fallback] Empty text in round {round_idx}, auto-delegating to Heavy Agent: {user_prompt}")
+                        import threading
+                        t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,))
+                        t_thread.start()
+                        return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω."
                     return "Συγγνώμη, παρακαλώ επαναλάβετε."
+                
+                lower_t = t.lower()
+                if any(phrase in lower_t for phrase in ["δεν μπόρεσα να βρω", "δεν βρήκα", "δεν γνωρίζω", "δεν μπορώ να βρω", "δυστυχώς δεν"]) and user_prompt:
+                    print(f"[Fallback] Fast agent apologized, auto-delegating to Heavy Agent: {user_prompt}")
+                    import threading
+                    t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,))
+                    t_thread.start()
+                    return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω."
+
                 return t
             except ValueError:
+                if user_prompt:
+                    print(f"[Fallback] ValueError on response.text, auto-delegating to Heavy Agent: {user_prompt}")
+                    import threading
+                    t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,))
+                    t_thread.start()
+                    return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω."
                 return "(No response generated)"
         
         function_responses = []
@@ -1240,14 +1214,29 @@ def _execute_tool_calls(response, model_name, chat_history, config):
             config=config
         )
     
-    # If we exhausted rounds, return whatever we have
+    # If we exhausted rounds, check if we have text
     try:
         final_text = current_response.text
-        if not final_text or final_text.strip() == "":
-            return "Συγγνώμη, δεν μπόρεσα να βρω την απάντηση. Παρακαλώ δοκιμάστε ξανά."
-        return final_text
-    except ValueError:
-        return "Συγγνώμη, κάτι πήγε στραβά κατά την επεξεργασία του αιτήματος."
+        if final_text and final_text.strip():
+            lower_text = final_text.lower()
+            if any(phrase in lower_text for phrase in ["δεν μπόρεσα να βρω", "δεν βρήκα", "δεν γνωρίζω", "δεν μπορώ να", "δυστυχώς δεν"]) and user_prompt:
+                print(f"[Fallback] Fast Agent apologized after exhausting rounds, auto-delegating to Heavy Agent: {user_prompt}")
+                import threading
+                t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,))
+                t_thread.start()
+                return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω."
+            return final_text
+    except Exception:
+        pass
+
+    if user_prompt:
+        print(f"[Fallback] Exhausted rounds without final text. Auto-delegating to Heavy Agent: {user_prompt}")
+        import threading
+        t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,))
+        t_thread.start()
+        return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω."
+
+    return "Συγγνώμη, δεν μπόρεσα να βρω την απάντηση. Παρακαλώ δοκιμάστε ξανά."
 
 
 @app.post("/v1/chat/completions")
@@ -1380,13 +1369,18 @@ async def chat_completions(request: Request):
 
         )
 
-        content = _execute_tool_calls(response, gemini_model_name, chat_history, config)
-
-        
+        content = _execute_tool_calls(response, gemini_model_name, chat_history, config, user_prompt=user_text)
 
     except Exception as e:
-
-        content = f"Error calling Gemini API: {e}"
+        print(f"Error calling Gemini API: {e}")
+        if user_text:
+            print(f"[Fallback] Gemini API error, auto-delegating to Heavy Agent: {user_text}")
+            import threading
+            t = threading.Thread(target=_run_heavy_agent, args=(user_text,))
+            t.start()
+            content = "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω."
+        else:
+            content = f"Error calling Gemini API: {e}"
 
 
 
@@ -1586,7 +1580,7 @@ def health_check():
 
 
 if __name__ == "__main__":
-    print(f"Starting Antigravity Brain v3.1.2")
+    print(f"Starting Antigravity Brain v3.2.3")
     print(f"  Phase 1 (Fast Agent): engine={fast_agent_engine}, model={fast_agent_model}, thinking={fast_agent_thinking}")
     print(f"  Phase 2 (Heavy Agent): engine={heavy_agent_engine}, thinking={heavy_agent_thinking}")
     print(f"  Port: {PORT}")
