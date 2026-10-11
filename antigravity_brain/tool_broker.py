@@ -193,15 +193,14 @@ if [ -z "$1" ]; then
     echo "Usage: ha-template '<jinja_expression>'"
     exit 1
 fi
-curl -s -H "Authorization: Bearer $SUPERVISOR_TOKEN" -H "Content-Type: application/json" -d "{\\"template\\": \\"$1\\"}" http://supervisor/core/api/template
+python3 -c "import sys, os, requests; t=sys.argv[1]; token=os.environ.get('SUPERVISOR_TOKEN'); print(requests.post('http://supervisor/core/api/template', headers={'Authorization': f'Bearer {token}'}, json={'template': t}).text)" "$1"
 """,
         "/usr/local/bin/ha-history": """#!/bin/sh
 if [ -z "$1" ]; then
     echo "Usage: ha-history <entity_id> [hours]"
     exit 1
 fi
-HOURS=${2:-24}
-python3 -c "import os, datetime, requests; h=int('$HOURS'); past=(datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(hours=h)).isoformat(); r=requests.get(f'http://supervisor/core/api/history/period/{past}?filter_entity_id=$1', headers={'Authorization': f'Bearer {os.environ.get(\\"SUPERVISOR_TOKEN\\")}'}); print(r.text[:2000])"
+python3 -c "import sys, os, datetime, requests; ent=sys.argv[1]; h=int(sys.argv[2]) if len(sys.argv)>2 else 24; past=(datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(hours=h)).isoformat(); token=os.environ.get('SUPERVISOR_TOKEN'); r=requests.get(f'http://supervisor/core/api/history/period/{past}?filter_entity_id={ent}', headers={'Authorization': f'Bearer {token}'}); print(r.text[:3000])" "$@"
 """,
         "/usr/local/bin/ha-db": """#!/bin/sh
 if [ -z "$1" ]; then
