@@ -92,7 +92,13 @@ if os.path.exists(OPTIONS_PATH):
 fast_agent_engine = options.get("fast_agent_engine", "gemini_api")
 fast_agent_model = options.get("fast_agent_model", options.get("model", DEFAULT_MODEL))
 fast_agent_thinking = options.get("fast_agent_thinking", "low")
-fast_agent_token = options.get("fast_agent_token", "") or options.get("gemini_api_key", "") or DEFAULT_API_KEY
+fast_agent_token = (
+    options.get("fast_agent_api_key", "")
+    or options.get("fast_agent_token", "")
+    or options.get("gemini_api_key", "")
+    or DEFAULT_API_KEY
+)
+fast_agent_api_key = fast_agent_token
 
 # Phase 2: Heavy Agent Settings
 heavy_agent_engine = options.get("heavy_agent_engine", "codex_fallback")
@@ -1136,14 +1142,98 @@ def _execute_tool_calls(response, model_name, chat_history, config, user_prompt:
         t_thread.start()
         return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω."
 
-    return "Συγγνώμη, δεν μπόρεσα να βρω την απάντηση. Παρακαλώ δοκιμάστε ξανά."
+def _get_openai_tools():
+    """Convert GEMINI_TOOLS function declarations into OpenAI tools schema."""
+    tools = []
+    for fd in GEMINI_TOOLS[0].get("function_declarations", []):
+        params = json.loads(json.dumps(fd.get("parameters", {})))
+        def _lower_types(d):
+            if isinstance(d, dict):
+                for k, v in list(d.items()):
+                    if k == "type" and isinstance(v, str):
+                        d[k] = v.lower()
+                    else:
+                        _lower_types(v)
+            elif isinstance(d, list):
+                for item in d:
+                    _lower_types(item)
+        _lower_types(params)
+        tools.append({
+            "type": "function",
+            "function": {
+                "name": fd["name"],
+                "description": fd.get("description", ""),
+                "parameters": params
+            }
+        })
+    return tools
+
+
+def _execute_openai_chat(messages, system_prompt, model_name, token, user_prompt):
+    """Execute Fast Agent query against OpenAI API with tool support."""
+    tools = _get_openai_tools()
+    openai_msgs = [{"role": "system", "content": system_prompt}]
+    for m in messages:
+        c = m.get("content", "")
+        if isinstance(c, list):
+            c_text = " ".join(part.get("text", "") for part in c if isinstance(part, dict) and "text" in part)
+        else:
+            c_text = str(c)
+        openai_msgs.append({"role": m.get("role", "user"), "content": c_text})
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+
+    req_model = model_name
+    if not req_model or "flash" in req_model.lower() or "pro" in req_model.lower():
+        req_model = "gpt-4o-mini"
+
+    for round_idx in range(5):
+        payload = {
+            "model": req_model,
+            "messages": openai_msgs,
+            "tools": tools,
+            "tool_choice": "auto"
+        }
+        res = http_requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=20)
+        if res.status_code != 200:
+            raise Exception(f"OpenAI API error {res.status_code}: {res.text}")
+        data = res.json()
+        choice = data["choices"][0]["message"]
+        openai_msgs.append(choice)
+
+        tool_calls = choice.get("tool_calls", [])
+        if not tool_calls:
+            return choice.get("content", "")
+
+        for tc in tool_calls:
+            fn_name = tc["function"]["name"]
+            try:
+                fn_args = json.loads(tc["function"].get("arguments", "{}"))
+            except Exception:
+                fn_args = {}
+            print(f"[OpenAI Tool Call] {fn_name}({json.dumps(fn_args, ensure_ascii=False)[:200]})")
+            handler = TOOL_DISPATCH.get(fn_name)
+            res_val = handler(fn_args) if handler else f"Unknown tool: {fn_name}"
+
+            if fn_name == "delegate_to_antigravity":
+                print("[System] Short-circuiting response for delegate_to_antigravity to prevent LLM apology.")
+                return fn_args.get("immediate_reply", "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω.")
+
+            openai_msgs.append({
+                "role": "tool",
+                "tool_call_id": tc["id"],
+                "content": str(res_val)
+            })
+
+    return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω."
 
 
 @app.post("/v1/chat/completions")
-
 async def chat_completions(request: Request):
-
-    """OpenAI-compatible chat completions endpoint backed by Gemini with tool use."""
+    """OpenAI-compatible chat completions endpoint backed by Gemini or OpenAI with tool use."""
 
     data = await request.json()
 
@@ -1232,55 +1322,39 @@ async def chat_completions(request: Request):
 
 
     try:
+        if fast_agent_engine == "openai_api":
+            content = _execute_openai_chat(messages, final_system, fast_agent_model, fast_agent_api_key, user_text)
+        else:
+            config = {
+                "system_instruction": final_system,
+                "tools": GEMINI_TOOLS,
+            }
 
-        config = {
+            # Build the chat history for potential multi-turn tool calling
+            chat_history = []
+            for c in contents:
+                chat_history.append({
+                    "role": c["role"],
+                    "parts": [{"text": t["text"]} for t in c["parts"]],
+                })
 
-            "system_instruction": final_system,
-
-            "tools": GEMINI_TOOLS,
-
-        }
-
-        
-
-        # Build the chat history for potential multi-turn tool calling
-
-        chat_history = []
-
-        for c in contents:
-
-            chat_history.append({
-
-                "role": c["role"],
-
-                "parts": [{"text": t["text"]} for t in c["parts"]],
-
-            })
-
-        
-
-        response = client.models.generate_content(
-
-            model=gemini_model_name,
-
-            contents=chat_history,
-
-            config=config
-
-        )
-
-        content = _execute_tool_calls(response, gemini_model_name, chat_history, config, user_prompt=user_text)
+            response = client.models.generate_content(
+                model=gemini_model_name,
+                contents=chat_history,
+                config=config
+            )
+            content = _execute_tool_calls(response, gemini_model_name, chat_history, config, user_prompt=user_text)
 
     except Exception as e:
-        print(f"Error calling Gemini API: {e}")
+        print(f"Error calling {fast_agent_engine}: {e}")
         if user_text:
-            print(f"[Fallback] Gemini API error, auto-delegating to Heavy Agent: {user_text}")
+            print(f"[Fallback] {fast_agent_engine} error, auto-delegating to Heavy Agent: {user_text}")
             import threading
             t = threading.Thread(target=_run_heavy_agent, args=(user_text,))
             t.start()
             content = "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω."
         else:
-            content = f"Error calling Gemini API: {e}"
+            content = f"Error calling {fast_agent_engine}: {e}"
 
 
 
@@ -1372,7 +1446,7 @@ async def get_api_status():
     curr_tts_engine, curr_tts_voice = get_tts_config()
     return {
         "status": "ok",
-        "version": "3.3.0",
+        "version": "3.3.1",
         "fast_agent": {
             "engine": fast_agent_engine,
             "model": fast_agent_model,
@@ -1480,7 +1554,7 @@ def health_check():
 
 
 if __name__ == "__main__":
-    print(f"Starting Antigravity Brain v3.3.0")
+    print(f"Starting Antigravity Brain v3.3.1")
     print(f"  Phase 1 (Fast Agent): engine={fast_agent_engine}, model={fast_agent_model}, thinking={fast_agent_thinking}")
     print(f"  Phase 2 (Heavy Agent): engine={heavy_agent_engine}, thinking={heavy_agent_thinking}")
     print(f"  Port: {PORT}")
