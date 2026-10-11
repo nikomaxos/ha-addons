@@ -1,59 +1,44 @@
 import os
-
 import json
-
 import time
-
 import uuid
-
 import subprocess
-
+import re
 import uvicorn
-
 import requests as http_requests
-
 from fastapi import FastAPI, Request
-
 from fastapi.responses import JSONResponse
-
 import memory_manager
-
-
 
 memory_manager.init_db()
 
-
-
 # ---------------------------------------------------------------------------
-
 # Load addon options from HA options.json
-
 # ---------------------------------------------------------------------------
-
 OPTIONS_PATH = "/data/options.json"
-
 DEFAULT_API_KEY = "YOUR_API_KEY_HERE"
-
 DEFAULT_MODEL = "3.8 flash high"
-
 PORT = 8000
 
-
-
 options = {}
-
 if os.path.exists(OPTIONS_PATH):
-
     with open(OPTIONS_PATH, "r") as f:
-
         options = json.load(f)
 
+# Phase 1: Fast Agent Settings
+fast_agent_engine = options.get("fast_agent_engine", "gemini_api")
+fast_agent_model = options.get("fast_agent_model", options.get("model", DEFAULT_MODEL))
+fast_agent_thinking = options.get("fast_agent_thinking", "low")
+fast_agent_token = options.get("fast_agent_token", "") or options.get("gemini_api_key", "") or DEFAULT_API_KEY
 
+# Phase 2: Heavy Agent Settings
+heavy_agent_engine = options.get("heavy_agent_engine", "codex_fallback")
+heavy_agent_model = options.get("heavy_agent_model", "auto")
+heavy_agent_thinking = options.get("heavy_agent_thinking", "high")
 
-api_key = options.get("gemini_api_key", "") or DEFAULT_API_KEY
-
-selected_model = options.get("model", DEFAULT_MODEL)
-
+# Legacy compatibility
+api_key = fast_agent_token
+selected_model = fast_agent_model
 PORT = options.get("api_port", PORT)
 
 
@@ -242,6 +227,24 @@ def tool_get_ha_states(entity_id: str = "") -> str:
 
 
 
+
+def tool_search_radio_browser(query: str) -> str:
+    """Search for a radio station using the Radio Browser API (built-in to HA)."""
+    try:
+        import requests
+        res = requests.get(f"https://de1.api.radio-browser.info/json/stations/search?name={query}", timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            if not data:
+                return "No stations found."
+            output = []
+            for d in data[:5]:
+                output.append(f"Name: {d.get('name')}\nStream URL: {d.get('url_resolved')}")
+            return "\n\n".join(output)
+        return f"API Error: HTTP {res.status_code}"
+    except Exception as e:
+        return f"Error searching radio: {e}"
+
 def tool_search_web(query: str) -> str:
 
     """Search the web using DuckDuckGo."""
@@ -325,10 +328,97 @@ def tool_execute_shell(command: str) -> str:
 
 
 def tool_store_memory(fact: str) -> str:
-
     import memory_manager
-
     return memory_manager.store_memory(fact, api_key)
+
+
+def _execute_codex_cli(task_description: str, thinking_level: str = "high") -> tuple[str, bool]:
+    """Execute Codex CLI non-interactively.
+    Returns (output_text, limit_or_error_exceeded).
+    """
+    codex_bin = None
+    for cand in ["./codex", "/usr/src/app/codex", "codex", "codex.exe"]:
+        try:
+            if os.path.exists(cand) or subprocess.run(["which", cand], capture_output=True).returncode == 0:
+                codex_bin = cand
+                break
+        except Exception:
+            pass
+
+    if not codex_bin:
+        print("[Heavy Agent - Codex] Codex binary not found in container, falling back.")
+        return "", True
+
+    print(f"[Heavy Agent - Codex] Running Codex CLI (thinking: {thinking_level}) for: {task_description[:80]}...")
+    cmd = [codex_bin, "exec", "--ask-for-approval", "never", task_description]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        combined_output = (proc.stdout or "") + "\n" + (proc.stderr or "")
+
+        url_match = re.search(r'(https://[^\s]+(?:auth|device|login)[^\s]+)', combined_output)
+        if url_match:
+            print("\n" + "=" * 60)
+            print("⚠️ CODEX LOGIN REQUIRED! ⚠️")
+            print(f"Please open this link in your browser to authenticate:\n{url_match.group(1)}")
+            print("=" * 60 + "\n")
+
+        lower_out = combined_output.lower()
+        if "limit exceeded" in lower_out or "quota" in lower_out or "429" in lower_out or "rate limit" in lower_out:
+            print("[Heavy Agent - Codex] Limit exceeded detected!")
+            return combined_output, True
+
+        if proc.returncode != 0:
+            print(f"[Heavy Agent - Codex] Error/non-zero return code ({proc.returncode}): {proc.stderr[:200]}")
+            return combined_output, True
+
+        return proc.stdout.strip(), False
+    except subprocess.TimeoutExpired:
+        print("[Heavy Agent - Codex] Timed out after 120s.")
+        return "Codex process timed out.", True
+    except Exception as e:
+        print(f"[Heavy Agent - Codex] Execution failed: {e}")
+        return str(e), True
+
+
+def _execute_antigravity_cli(task_description: str, thinking_level: str = "high") -> tuple[str, bool]:
+    """Execute Antigravity CLI non-interactively."""
+    agy_bin = None
+    for cand in ["./agy", "/usr/src/app/agy", "agy", "antigravity"]:
+        try:
+            if os.path.exists(cand) or subprocess.run(["which", cand], capture_output=True).returncode == 0:
+                agy_bin = cand
+                break
+        except Exception:
+            pass
+
+    if not agy_bin:
+        print("[Heavy Agent - Antigravity] Antigravity binary not found in container.")
+        return "", True
+
+    print(f"[Heavy Agent - Antigravity] Running Antigravity CLI for: {task_description[:80]}...")
+    cmd = [agy_bin, "exec", task_description]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        combined_output = (proc.stdout or "") + "\n" + (proc.stderr or "")
+
+        url_match = re.search(r'(https://[^\s]+(?:auth|device|login)[^\s]+)', combined_output)
+        if url_match:
+            print("\n" + "=" * 60)
+            print("⚠️ ANTIGRAVITY LOGIN REQUIRED! ⚠️")
+            print(f"Please open this link in your browser to authenticate:\n{url_match.group(1)}")
+            print("=" * 60 + "\n")
+
+        lower_out = combined_output.lower()
+        if "limit exceeded" in lower_out or "quota" in lower_out or "429" in lower_out:
+            return combined_output, True
+
+        if proc.returncode != 0:
+            return combined_output, True
+
+        return proc.stdout.strip(), False
+    except Exception as e:
+        return str(e), True
+
 
 
 
@@ -342,6 +432,7 @@ def _run_heavy_agent(task_description: str):
 
     system_instruction = (
         "You are the Antigravity Heavy Agent running inside a Home Assistant add-on container. "
+        "CRITICAL: ALL YOUR RESPONSES MUST BE IN GREEK (Ελληνικά). Never use English in your final answer to the user. "
         "Your task is to autonomously solve complex problems. You have access to tools including "
         "execute_shell, query_database, call_ha_service, get_ha_states, and search_web. "
         "You have absolute freedom and MUST use your tools dynamically to solve problems. "
@@ -452,123 +543,88 @@ def _run_heavy_agent(task_description: str):
     chat_history = [
 
         {"role": "user", "parts": [{"text": f"Task: {task_description}"}]}
-
     ]
-
-    
 
     final_result = ""
 
-    try:
+    # 1. Attempt Codex CLI if configured
+    if heavy_agent_engine in ["codex_fallback", "codex_only"]:
+        print(f"[Heavy Agent] Evaluating task with Codex CLI (thinking: {heavy_agent_thinking})...")
+        codex_out, limit_or_error = _execute_codex_cli(task_description, heavy_agent_thinking)
+        if not limit_or_error and codex_out:
+            final_result = codex_out
+        elif limit_or_error:
+            print("[Heavy Agent] Codex CLI hit limit, quota, or is unavailable. Proceeding to fallback...")
 
-        MAX_STEPS = 15
+    # 2. Attempt Antigravity CLI if configured or after Codex limit
+    if not final_result and heavy_agent_engine in ["codex_fallback", "antigravity_only"]:
+        print(f"[Heavy Agent] Evaluating task with Antigravity CLI (thinking: {heavy_agent_thinking})...")
+        agy_out, limit_or_error = _execute_antigravity_cli(task_description, heavy_agent_thinking)
+        if not limit_or_error and agy_out:
+            final_result = agy_out
+        elif limit_or_error:
+            print("[Heavy Agent] Antigravity CLI hit limit or unavailable. Falling back to Gemini Pro agent...")
 
-        for step in range(MAX_STEPS):
+    # 3. Fallback to Gemini Pro Agent if CLIs didn't produce a final answer
+    if not final_result:
+        try:
+            MAX_STEPS = 15
+            for step in range(MAX_STEPS):
+                print(f"[Heavy Agent] Step {step+1}: Calling generate_content...")
+                response = client.models.generate_content(
+                    model=MODEL_MAP.get(selected_model, selected_model),
+                    contents=chat_history,
+                    config=config
+                )
+                print(f"[Heavy Agent] Step {step+1}: generate_content returned.")
 
-            print(f"[Heavy Agent] Step {step+1}: Calling generate_content...")
+                candidate = response.candidates[0]
+                function_calls = []
 
-            response = client.models.generate_content(
+                for part in candidate.content.parts:
+                    if hasattr(part, 'function_call') and part.function_call:
+                        function_calls.append(part.function_call)
 
-                model=MODEL_MAP.get(selected_model, selected_model),
+                if not function_calls:
+                    final_result = response.text
+                    break
 
-                contents=chat_history,
+                function_responses = []
+                for fc in function_calls:
+                    fn_name = fc.name
+                    fn_args = dict(fc.args) if fc.args else {}
+                    print(f"[Heavy Agent Tool Call] {fn_name}({json.dumps(fn_args, ensure_ascii=False)[:200]})")
 
-                config=config
+                    handler = heavy_dispatch.get(fn_name)
+                    if handler:
+                        try:
+                            res = handler(fn_args)
+                        except Exception as e:
+                            res = f"Tool error: {e}"
+                    else:
+                        res = f"Unknown tool: {fn_name}"
 
-            )
+                    print(f"[Heavy Agent Tool Result] {str(res)[:200]}")
 
-            print(f"[Heavy Agent] Step {step+1}: generate_content returned.")
+                    function_responses.append({
+                        "function_response": {
+                            "name": fn_name,
+                            "response": {"result": str(res)}
+                        }
+                    })
 
-            
-
-            candidate = response.candidates[0]
-
-            function_calls = []
-
-            
-
-            for part in candidate.content.parts:
-
-                if hasattr(part, 'function_call') and part.function_call:
-
-                    function_calls.append(part.function_call)
-
-            
-
-            if not function_calls:
-
-                final_result = response.text
-
-                break
-
-                
-
-            function_responses = []
-
-            for fc in function_calls:
-
-                fn_name = fc.name
-
-                fn_args = dict(fc.args) if fc.args else {}
-
-                print(f"[Heavy Agent Tool Call] {fn_name}({json.dumps(fn_args, ensure_ascii=False)[:200]})")
-
-                
-
-                handler = heavy_dispatch.get(fn_name)
-
-                if handler:
-
-                    try:
-
-                        res = handler(fn_args)
-
-                    except Exception as e:
-
-                        res = f"Tool error: {e}"
-
-                else:
-
-                    res = f"Unknown tool: {fn_name}"
-
-                
-
-                print(f"[Heavy Agent Tool Result] {str(res)[:200]}")
-
-                
-
-                function_responses.append({
-
-                    "function_response": {
-
-                        "name": fn_name,
-
-                        "response": {"result": str(res)}
-
-                    }
-
+                chat_history.append(candidate.content)
+                chat_history.append({
+                    "role": "user",
+                    "parts": function_responses,
                 })
 
-                
+            if not final_result:
+                final_result = "Heavy Agent reached maximum steps without a final text response."
 
-            chat_history.append(candidate.content)
+        except Exception as e:
+            final_result = f"Heavy Agent encountered a fatal error: {e}"
 
-            chat_history.append({
-
-                "role": "user",
-
-                "parts": function_responses,
-
-            })
-
-            
-
-        if not final_result:
-            final_result = "Heavy Agent reached maximum steps without a final text response."
-            
-    except Exception as e:
-        final_result = f"Heavy Agent encountered a fatal error: {e}"
-        
     print(f"[Heavy Agent] Finished. Result: {final_result}")
     
     # Parse the final JSON response
@@ -815,7 +871,7 @@ SYSTEM_INSTRUCTION = (
 
     "You have tools to control devices, get current states, search the web, and more. "
 
-    "Always respond in the same language the user speaks. "
+    "CRITICAL: Always respond in Greek (Ελληνικά), no matter what. "
 
     "Be concise and output natural language suitable for Text-to-Speech (TTS). "
 
@@ -828,6 +884,8 @@ SYSTEM_INSTRUCTION = (
     "If a question requires historical data, analytics, or complex logic, you MUST call `delegate_to_antigravity`. However, if you can find the current status or location of an entity (like a car, light, or sensor) directly in the data returned by `get_ha_states`, answer immediately yourself! "
 
     "If you try to use `search_web` to answer a question and you cannot find the answer, you MUST call `delegate_to_antigravity` so the Heavy Agent can do a deep search. "
+
+    "If the user asks to play a specific radio station, FIRST use the `search_radio_browser` tool to find the direct audio stream URL. If you find it, play it using `call_ha_service` on the media player (set media_content_type to 'music' and media_content_id to the stream URL). If you CANNOT find it via `search_radio_browser`, DO NOT use `search_web`. IMMEDIATELY call `delegate_to_antigravity`! "
 
     "you MUST NOT just say you can't do it. Instead, you MUST automatically call the `delegate_to_antigravity` tool to trigger the Antigravity flow."
 
@@ -1175,35 +1233,29 @@ async def list_models():
 
 
 @app.get("/health")
-
 def health_check():
-
     return {
-
         "status": "ok",
-
-        "model": selected_model,
-
-        "api_key_set": bool(api_key),
-
+        "fast_agent": {
+            "engine": fast_agent_engine,
+            "model": fast_agent_model,
+            "thinking": fast_agent_thinking,
+            "token_configured": bool(fast_agent_token),
+        },
+        "heavy_agent": {
+            "engine": heavy_agent_engine,
+            "model": heavy_agent_model,
+            "thinking": heavy_agent_thinking,
+        },
         "supervisor_token_set": bool(SUPERVISOR_TOKEN),
-
     }
 
 
-
-
-
 if __name__ == "__main__":
-
-    print(f"Starting Antigravity Brain v2.0.0")
-
-    print(f"  Model: {selected_model}")
-
+    print(f"Starting Antigravity Brain v3.0.0")
+    print(f"  Phase 1 (Fast Agent): engine={fast_agent_engine}, model={fast_agent_model}, thinking={fast_agent_thinking}")
+    print(f"  Phase 2 (Heavy Agent): engine={heavy_agent_engine}, thinking={heavy_agent_thinking}")
     print(f"  Port: {PORT}")
-
-    print(f"  API Key: {'set' if api_key else 'NOT SET'}")
-
+    print(f"  Fast Agent Token: {'set' if fast_agent_token else 'NOT SET'}")
     print(f"  Supervisor Token: {'set' if SUPERVISOR_TOKEN else 'NOT SET'}")
-
     uvicorn.run(app, host="0.0.0.0", port=PORT)
