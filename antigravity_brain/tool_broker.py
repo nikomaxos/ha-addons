@@ -100,9 +100,14 @@ class SecureToolBroker:
     # -------------------------------------------------------------------------
     def call_ha_service(self, domain: str, service: str, service_data: dict = None) -> str:
         """Call a Home Assistant service/action to control devices."""
-        url = f"{SUPERVISOR_URL}/services/{domain}/{service}?return_response=true"
+        base_url = f"{SUPERVISOR_URL}/services/{domain}/{service}"
         try:
-            resp = http_requests.post(url, headers=self._headers(), json=service_data or {}, timeout=15)
+            # First try calling with return_response=true (for services like search, weather, etc.)
+            resp = http_requests.post(f"{base_url}?return_response=true", headers=self._headers(), json=service_data or {}, timeout=15)
+            # If the service does not support responses, retry standard call without the parameter
+            if resp.status_code == 400 and "return_response" in resp.text:
+                resp = http_requests.post(base_url, headers=self._headers(), json=service_data or {}, timeout=15)
+
             if resp.status_code == 200:
                 try:
                     res_json = resp.json()

@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+"""ha-music: Command line interface for Music Assistant and Antigravity Brain audio streaming."""
+
+import sys
+import os
+import argparse
+
+# Add brain directory to path
+sys.path.insert(0, "/usr/src/app")
+sys.path.insert(0, "/addons/antigravity_addon")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+try:
+    import music_bridge
+except ImportError:
+    print("Error: Could not import music_bridge module.", file=sys.stderr)
+    sys.exit(1)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Unified Music Assistant & YouTube Streaming CLI for Home Assistant"
+    )
+    subparsers = parser.add_subparsers(dest="command", help="Command to execute")
+
+    # Play command
+    play_parser = subparsers.add_parser("play", help="Play music, radio, playlist, or song")
+    play_parser.add_argument("query", help="Song title, radio station name, or YouTube search term")
+    play_parser.add_argument("--player", "-p", default="satellites", help="Target player (satellites, tv, hisense, or entity_id)")
+
+    # Stop command
+    stop_parser = subparsers.add_parser("stop", help="Stop music playback")
+    stop_parser.add_argument("--player", "-p", default=None, help="Target player")
+
+    # Pause command
+    pause_parser = subparsers.add_parser("pause", help="Pause music playback")
+    pause_parser.add_argument("--player", "-p", default=None, help="Target player")
+
+    # Resume command
+    resume_parser = subparsers.add_parser("resume", help="Resume music playback")
+    resume_parser.add_argument("--player", "-p", default=None, help="Target player")
+
+    # Next command
+    next_parser = subparsers.add_parser("next", help="Skip to next track")
+    next_parser.add_argument("--player", "-p", default=None, help="Target player")
+
+    # Previous command
+    prev_parser = subparsers.add_parser("previous", help="Skip to previous track")
+    prev_parser.add_argument("--player", "-p", default=None, help="Target player")
+
+    # Volume command
+    vol_parser = subparsers.add_parser("volume", help="Set volume level (0-100) or up/down")
+    vol_parser.add_argument("level", help="Volume level (0-100) or 'up'/'down'")
+    vol_parser.add_argument("--player", "-p", default=None, help="Target player")
+
+    # Search command
+    search_parser = subparsers.add_parser("search", help="Search Music Assistant library")
+    search_parser.add_argument("query", help="Search term")
+
+    args = parser.parse_args()
+
+    if not args.command:
+        parser.print_help()
+        sys.exit(0)
+
+    if args.command == "play":
+        result = music_bridge.play_music(args.query, player=args.player)
+        print(result)
+
+    elif args.command == "stop":
+        result = music_bridge.control_music("stop", player=args.player)
+        print(result)
+
+    elif args.command == "pause":
+        result = music_bridge.control_music("pause", player=args.player)
+        print(result)
+
+    elif args.command == "resume":
+        result = music_bridge.control_music("resume", player=args.player)
+        print(result)
+
+    elif args.command == "next":
+        result = music_bridge.control_music("next", player=args.player)
+        print(result)
+
+    elif args.command == "previous":
+        result = music_bridge.control_music("previous", player=args.player)
+        print(result)
+
+    elif args.command == "volume":
+        lvl = args.level.strip().lower()
+        if lvl in ["up", "δυνάμωσε", "+"]:
+            result = music_bridge.control_music("volume_up", player=args.player)
+        elif lvl in ["down", "χαμήλωσε", "-"]:
+            result = music_bridge.control_music("volume_down", player=args.player)
+        else:
+            try:
+                v = float(lvl)
+                result = music_bridge.control_music("volume_set", player=args.player, volume=v)
+            except ValueError:
+                result = f"Invalid volume value: {lvl}"
+        print(result)
+
+    elif args.command == "search":
+        res = music_bridge.search_mass(args.query)
+        print(f"Results for '{args.query}':")
+        for cat, items in res.items():
+            if items:
+                print(f"  {cat.upper()}:")
+                for item in items[:5]:
+                    print(f"    - {item.get('name')} (URI: {item.get('uri')})")
+
+
+if __name__ == "__main__":
+    main()

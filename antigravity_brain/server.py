@@ -416,6 +416,17 @@ def tool_store_memory(fact: str) -> str:
     return memory_manager.store_memory(fact, api_key)
 
 
+def tool_play_music(query: str, player: str = None) -> str:
+    import music_bridge
+    return music_bridge.play_music(query, player=player)
+
+
+def tool_control_music(action: str, player: str = None, volume: float = None) -> str:
+    import music_bridge
+    return music_bridge.control_music(action, player=player, volume=volume)
+
+
+
 def _execute_codex_cli(task_description: str, thinking_level: str = "high") -> tuple[str, bool]:
     """Execute Codex CLI non-interactively.
     Returns (output_text, limit_or_error_exceeded).
@@ -459,11 +470,14 @@ def _execute_codex_cli(task_description: str, thinking_level: str = "high") -> t
         "   - Tables: statistics_meta (metadata_id, statistic_id, unit_of_measurement), statistics (metadata_id, start_ts, state, sum, min, max, mean), statistics_short_term, states (entity_id, state, last_updated_ts), states_meta.\n"
         "3. Web Search & Data Processing:\n"
         "   - Use python3 with urllib or ddgs, curl, jq, etc., to search the web or process data.\n"
-        "4. Playing Music / Audio / YouTube on Satellite Speakers (`media_player.antigravity_satellites`):\n"
+        "4. Playing Music / Audio / Radio via Music Assistant & YouTube Streaming:\n"
         "   - CRITICAL: Home Assistant satellite speakers (e.g. `media_player.antigravity_satellites` / ESPHome) DO NOT support raw YouTube web URLs (https://www.youtube.com/...). Never send raw YouTube web URLs to media_player.play_media!\n"
-        "   - To play ANY song, music, or YouTube video on the speakers, simply execute:\n"
-        "     ha-play-youtube \"<YouTube URL or Song Title>\" [target_entity_id]\n"
-        "     This automatically downloads/caches the MP3, unmutes the speaker, and triggers proper playback.\n\n"
+        "   - Use the unified CLI tool available in your PATH: `ha-music`\n"
+        "     * Play radio / song / playlist: ha-music play \"<query>\" [--player satellites|tv|hisense]\n"
+        "       Examples: ha-music play \"Imagine 89.7\", ha-music play \"Paidaki 97.5\", ha-music play \"Queen Bohemian Rhapsody\"\n"
+        "     * Playback controls: ha-music pause, ha-music resume, ha-music stop, ha-music next, ha-music volume 50\n"
+        "     * Direct YouTube caching: ha-play-youtube \"<YouTube URL or Song Title>\" [target_entity_id]\n"
+        "   - ha-music automatically searches Music Assistant first, streams live radio, and seamlessly falls back to cached YouTube audio streaming.\n\n"
         "CRITICAL INSTRUCTIONS:\n"
         "1. NEVER give up or say you lack access to Home Assistant! Use your shell tools to inspect states, query the database, calculate the metrics, and deliver the answer.\n"
         "2. ALL RESPONSES MUST BE IN GREEK (Ελληνικά).\n"
@@ -581,11 +595,14 @@ def _execute_antigravity_cli(task_description: str, thinking_level: str = "high"
         "   - Tables: statistics_meta (metadata_id, statistic_id, unit_of_measurement), statistics (metadata_id, start_ts, state, sum, min, max, mean), statistics_short_term, states (entity_id, state, last_updated_ts), states_meta.\n"
         "3. Web Search & Data Processing:\n"
         "   - Use python3 with urllib or ddgs, curl, jq, etc., to search the web or process data.\n"
-        "4. Playing Music / Audio / YouTube on Satellite Speakers (`media_player.antigravity_satellites`):\n"
+        "4. Playing Music / Audio / Radio via Music Assistant & YouTube Streaming:\n"
         "   - CRITICAL: Home Assistant satellite speakers (e.g. `media_player.antigravity_satellites` / ESPHome) DO NOT support raw YouTube web URLs (https://www.youtube.com/...). Never send raw YouTube web URLs to media_player.play_media!\n"
-        "   - To play ANY song, music, or YouTube video on the speakers, simply execute:\n"
-        "     ha-play-youtube \"<YouTube URL or Song Title>\" [target_entity_id]\n"
-        "     This automatically downloads/caches the MP3, unmutes the speaker, and triggers proper playback.\n\n"
+        "   - Use the unified CLI tool available in your PATH: `ha-music`\n"
+        "     * Play radio / song / playlist: ha-music play \"<query>\" [--player satellites|tv|hisense]\n"
+        "       Examples: ha-music play \"Imagine 89.7\", ha-music play \"Paidaki 97.5\", ha-music play \"Queen Bohemian Rhapsody\"\n"
+        "     * Playback controls: ha-music pause, ha-music resume, ha-music stop, ha-music next, ha-music volume 50\n"
+        "     * Direct YouTube caching: ha-play-youtube \"<YouTube URL or Song Title>\" [target_entity_id]\n"
+        "   - ha-music automatically searches Music Assistant first, streams live radio, and seamlessly falls back to cached YouTube audio streaming.\n\n"
         "CRITICAL INSTRUCTIONS:\n"
         "1. NEVER give up or say you lack access to Home Assistant! Use your shell tools to inspect states, query the database, calculate the metrics, and deliver the answer.\n"
         "2. ALL RESPONSES MUST BE IN GREEK (Ελληνικά).\n"
@@ -1051,6 +1068,46 @@ GEMINI_TOOLS = [{
                 "required": ["fact"],
             },
         },
+        {
+            "name": "play_music",
+            "description": "Play music, radio stations, songs, or playlists using the Music Assistant bridge and streaming engine. Call this whenever the user asks to play music, a radio station (e.g. 'Βάλε Imagine 89.7', 'Βάλε Παιδάκι 97.5', 'βάλε ραδιόφωνο'), a song, artist, playlist, or YouTube audio.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "query": {
+                        "type": "STRING",
+                        "description": "The song title, radio station name, artist, or playlist to play (e.g. 'Imagine 89.7', 'Paidaki 97.5', 'Queen Bohemian Rhapsody', 'παιδικά τραγούδια')."
+                    },
+                    "player": {
+                        "type": "STRING",
+                        "description": "Optional target player: 'satellites' (default, smart speakers), 'tv' (living room TV / OLED), 'hisense', or a specific media_player entity ID."
+                    }
+                },
+                "required": ["query"],
+            },
+        },
+        {
+            "name": "control_music",
+            "description": "Control currently playing music (pause, resume, stop, next track, previous track, volume up/down/set). Call this whenever the user asks to stop, pause, resume, or adjust music volume.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "action": {
+                        "type": "STRING",
+                        "description": "The action: 'stop', 'pause', 'resume', 'next', 'previous', 'volume_up', 'volume_down', 'volume_set'."
+                    },
+                    "volume": {
+                        "type": "NUMBER",
+                        "description": "Volume level (0-100) if action is volume_set."
+                    },
+                    "player": {
+                        "type": "STRING",
+                        "description": "Optional target player or media_player entity."
+                    }
+                },
+                "required": ["action"],
+            },
+        },
     ]
 }]
 
@@ -1070,6 +1127,8 @@ TOOL_DISPATCH = {
         is_voice=args.get("is_voice", True)
     ),
     "store_memory": lambda args: tool_store_memory(args.get("fact", "")),
+    "play_music": lambda args: tool_play_music(args.get("query", ""), player=args.get("player")),
+    "control_music": lambda args: tool_control_music(args.get("action", ""), player=args.get("player"), volume=args.get("volume")),
 }
 
 
@@ -1091,6 +1150,13 @@ SYSTEM_INSTRUCTION = (
     "Be concise and output natural language suitable for Text-to-Speech (TTS). "
     "Do not include markdown, code blocks, or special formatting in your response. "
     "When you ask the user a question, always call the keep_mic_open tool so the microphone stays open for their answer. "
+    "\n\n"
+    "MUSIC & AUDIO PLAYBACK POLICY:\n"
+    "1. For ANY music or radio playback request (e.g. 'βάλε μουσική', 'παίξε Imagine 89.7', 'βάλε Παιδάκι 97.5', 'παίξε ένα παιδικό τραγούδι', 'παίξε Beatles', 'play music'), you MUST call the `play_music` tool immediately!\n"
+    "   - Pass the query (e.g. 'Imagine 89.7', 'Paidaki 97.5', 'Queen Bohemian Rhapsody').\n"
+    "   - If the user specifies a device/room (e.g. 'στην τηλεόραση', 'στο σαλόνι', 'στο ηχείο'), pass player='tv' or player='satellites'. Default is 'satellites'.\n"
+    "2. For music playback controls (e.g. 'σταμάτα τη μουσική', 'παύση', 'συνέχισε', 'δυνάμωσε', 'χαμήλωσε', 'επόμενο τραγούδι'), call the `control_music` tool immediately.\n"
+    "3. Never attempt to manually call media_player.play_media with raw YouTube URLs or guess stream URLs yourself. Always use `play_music`.\n"
     "\n\n"
     "PERSISTENT LONG-TERM MEMORY POLICY:\n"
     "1. You have access to the `store_memory` tool. You MUST call `store_memory` whenever:\n"
