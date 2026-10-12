@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     npm \
     jq \
     default-mysql-client \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /usr/src/app
@@ -17,8 +18,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Ensure any CLI executables are runnable
-RUN chmod +x codex* agy* 2>/dev/null || true
+# Ensure any CLI executables are runnable and installed to PATH
+RUN chmod +x codex* agy* ha-play-youtube 2>/dev/null || true && \
+    cp ha-play-youtube /usr/local/bin/ha-play-youtube 2>/dev/null || true
 
 EXPOSE 8000
 

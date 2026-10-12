@@ -1,0 +1,81 @@
+#!/usr/local/bin/python3
+import sys
+import os
+import subprocess
+import json
+import urllib.request
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: ha-play-youtube <URL or Search Query> [media_player_entity_id]")
+        sys.exit(1)
+
+    query = sys.argv[1].strip()
+    target_entity = sys.argv[2].strip() if len(sys.argv) > 2 else "media_player.antigravity_satellites"
+    supervisor_token = os.environ.get("SUPERVISOR_TOKEN", "")
+
+    cache_dir = "/homeassistant/www/music_cache"
+    os.makedirs(cache_dir, exist_ok=True)
+
+    if not (query.startswith("http://") or query.startswith("https://")):
+        search_target = f"ytsearch1:{query}"
+    else:
+        search_target = query
+
+    print(f"Resolving video for: {query}...", flush=True)
+    get_info_cmd = [
+        "yt-dlp",
+        "--extractor-args", "youtube:player_client=android,web",
+        "--dump-json",
+        "--default-search", "ytsearch",
+        search_target
+    ]
+    proc = subprocess.run(get_info_cmd, capture_output=True, text=True)
+    if proc.returncode != 0 or not proc.stdout.strip():
+        print(f"Error resolving video: {proc.stderr}")
+        sys.exit(1)
+
+    info = json.loads(proc.stdout.strip().splitlines()[0])
+    video_id = info.get("id")
+    video_title = info.get("title", query)
+    output_mp3 = os.path.join(cache_dir, f"{video_id}.mp3")
+
+    if not os.path.exists(output_mp3):
+        print(f"Downloading audio for '{video_title}' ({video_id})...", flush=True)
+        download_cmd = [
+            "yt-dlp",
+            "--extractor-args", "youtube:player_client=android,web",
+            "-x", "--audio-format", "mp3",
+            "-o", os.path.join(cache_dir, f"{video_id}.%(ext)s"),
+            f"https://www.youtube.com/watch?v={video_id}"
+        ]
+        dl_proc = subprocess.run(download_cmd, capture_output=True, text=True)
+        if not os.path.exists(output_mp3):
+            print(f"Error converting audio: {dl_proc.stderr}")
+            sys.exit(1)
+    else:
+        print(f"Audio already cached for '{video_title}'.", flush=True)
+
+    headers = {
+        "Authorization": f"Bearer {supervisor_token}",
+        "Content-Type": "application/json"
+    }
+    unmute_payload = json.dumps({"entity_id": target_entity, "is_volume_muted": False}).encode()
+    try:
+        req = urllib.request.Request("http://supervisor/core/api/services/media_player/volume_mute", headers=headers, data=unmute_payload)
+        urllib.request.urlopen(req, timeout=5)
+    except Exception as e:
+        print(f"Warning: could not unmute {target_entity}: {e}")
+
+    media_url = f"http://192.168.50.10:8123/local/music_cache/{video_id}.mp3"
+    play_payload = json.dumps({
+        "entity_id": target_entity,
+        "media_content_id": media_url,
+        "media_content_type": "music"
+    }).encode()
+    req = urllib.request.Request("http://supervisor/core/api/services/media_player/play_media", headers=headers, data=play_payload)
+    resp = urllib.request.urlopen(req, timeout=10)
+    print(f"SUCCESS: Playing '{video_title}' on {target_entity} (Status: {resp.status})")
+
+if __name__ == "__main__":
+    main()
