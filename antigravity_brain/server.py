@@ -318,6 +318,106 @@ def _supervisor_headers():
     }
 
 
+VOICE_TARGETS_BY_DEVICE_ID = {
+    "03fd8d78100da5bbc643d82dd4bb5df4": (
+        "media_player.lva_kouzina_media_player",
+        "assist_satellite.lva_kouzina_assist_satellite",
+    ),
+    "aff729019a7a230a4f935626e914f8e2": (
+        "media_player.lva_bluetooth_speaker_media_player",
+        "assist_satellite.lva_bluetooth_speaker_assist_satellite",
+    ),
+}
+
+VOICE_TARGETS_BY_SATELLITE_ID = {
+    satellite_id: (media_player, satellite_id)
+    for media_player, satellite_id in VOICE_TARGETS_BY_DEVICE_ID.values()
+}
+
+
+def _target_from_satellite_id(satellite_id: str) -> tuple[str, str]:
+    """Resolve a known or conventionally named satellite to its media player."""
+    satellite_id = (satellite_id or "").strip()
+    if not satellite_id:
+        return "", ""
+
+    known_target = VOICE_TARGETS_BY_SATELLITE_ID.get(satellite_id)
+    if known_target:
+        return known_target
+
+    prefix = "assist_satellite."
+    suffix = "_assist_satellite"
+    if satellite_id.startswith(prefix) and satellite_id.endswith(suffix):
+        object_id = satellite_id[len(prefix):-len(suffix)]
+        if object_id:
+            return f"media_player.{object_id}_media_player", satellite_id
+
+    return "", ""
+
+
+def _resolve_voice_target(
+    device_id: str = None,
+    satellite_id: str = None,
+    is_voice: bool = True,
+) -> tuple[str, str]:
+    """Resolve the room media player and satellite for a request."""
+    normalized_device_id = (device_id or "").strip()
+    normalized_satellite_id = (satellite_id or "").strip()
+
+    if normalized_device_id in VOICE_TARGETS_BY_DEVICE_ID:
+        return VOICE_TARGETS_BY_DEVICE_ID[normalized_device_id]
+
+    explicit_target = _target_from_satellite_id(normalized_satellite_id)
+    if explicit_target[0]:
+        return explicit_target
+
+    if not is_voice:
+        return "media_player.notifications_group", ""
+
+    try:
+        response = http_requests.get(
+            f"{SUPERVISOR_URL}/states",
+            headers=_supervisor_headers(),
+            timeout=3,
+        )
+        response.raise_for_status()
+        satellites = [
+            state
+            for state in response.json()
+            if str(state.get("entity_id", "")).startswith("assist_satellite.")
+        ]
+        active_states = {"processing", "listening", "responding"}
+        active_satellites = [
+            state
+            for state in satellites
+            if str(state.get("state", "")).lower() in active_states
+        ]
+        candidates = active_satellites or satellites
+        if candidates:
+            most_recent = max(
+                candidates,
+                key=lambda state: state.get("last_changed", ""),
+            )
+            dynamic_target = _target_from_satellite_id(
+                str(most_recent.get("entity_id", ""))
+            )
+            if dynamic_target[0]:
+                print(
+                    "[Voice Target] Resolved dynamically to "
+                    f"{dynamic_target[0]} ({dynamic_target[1]})",
+                    flush=True,
+                )
+                return dynamic_target
+    except Exception as exc:
+        print(f"[Voice Target] Dynamic resolution failed: {exc}", flush=True)
+
+    print(
+        "[Voice Target] No room satellite could be resolved; using broadcast group.",
+        flush=True,
+    )
+    return "media_player.notifications_group", ""
+
+
 
 
 
@@ -451,14 +551,13 @@ def _execute_codex_cli(task_description: str, thinking_level: str = "high") -> t
         "   - Tables: statistics_meta (metadata_id, statistic_id, unit_of_measurement), statistics (metadata_id, start_ts, state, sum, min, max, mean), statistics_short_term, states (entity_id, state, last_updated_ts), states_meta.\n"
         "3. Web Search & Data Processing:\n"
         "   - Use python3 with urllib or ddgs, curl, jq, etc., to search the web or process data.\n"
-        "4. Playing Music / Audio / Radio via Music Assistant & YouTube Streaming:\n"
+        "4. Playing Music / Audio / Radio through Music Assistant (MASS):\n"
         "   - CRITICAL: Home Assistant satellite speakers (e.g. `media_player.notifications_group` / ESPHome) DO NOT support raw YouTube web URLs (https://www.youtube.com/...). Never send raw YouTube web URLs to media_player.play_media!\n"
-        "   - Use the unified CLI tool available in your PATH: `ha-music`\n"
-        "     * Play radio / song / playlist: ha-music play \"<query>\" [--player satellites|tv|hisense]\n"
+        "   - For EVERY song, artist, album, playlist, music, or radio request, use the unified `ha-music` CLI. It routes playback through the Music Assistant integration, whose providers include RadioBrowser/library radio and YouTube Music.\n"
+        "     * Play radio / song / artist / album / playlist: ha-music play \"<query>\" [--player satellites|bluetooth|tv|hisense]\n"
         "       Examples: ha-music play \"Imagine 89.7\", ha-music play \"Paidaki 97.5\", ha-music play \"Queen Bohemian Rhapsody\"\n"
         "     * Playback controls: ha-music pause, ha-music resume, ha-music stop, ha-music next, ha-music volume 50\n"
-        "     * Direct YouTube caching: ha-play-youtube \"<YouTube URL or Song Title>\" [target_entity_id]\n"
-        "   - ha-music automatically searches Music Assistant first, streams live radio, and seamlessly falls back to cached YouTube audio streaming.\n\n"
+        "   - Never invoke `ha-play-youtube` directly for a normal request. `ha-music` owns the emergency fallback and permits it only after both MASS search/URI playback and MASS direct query resolution fail.\n\n"
         "CRITICAL INSTRUCTIONS:\n"
         "1. NEVER give up or say you lack access to Home Assistant! Use your shell tools to inspect states, query the database, calculate the metrics, and deliver the answer.\n"
         "2. ALL RESPONSES MUST BE IN GREEK (Ελληνικά).\n"
@@ -576,14 +675,13 @@ def _execute_antigravity_cli(task_description: str, thinking_level: str = "high"
         "   - Tables: statistics_meta (metadata_id, statistic_id, unit_of_measurement), statistics (metadata_id, start_ts, state, sum, min, max, mean), statistics_short_term, states (entity_id, state, last_updated_ts), states_meta.\n"
         "3. Web Search & Data Processing:\n"
         "   - Use python3 with urllib or ddgs, curl, jq, etc., to search the web or process data.\n"
-        "4. Playing Music / Audio / Radio via Music Assistant & YouTube Streaming:\n"
+        "4. Playing Music / Audio / Radio through Music Assistant (MASS):\n"
         "   - CRITICAL: Home Assistant satellite speakers (e.g. `media_player.notifications_group` / ESPHome) DO NOT support raw YouTube web URLs (https://www.youtube.com/...). Never send raw YouTube web URLs to media_player.play_media!\n"
-        "   - Use the unified CLI tool available in your PATH: `ha-music`\n"
-        "     * Play radio / song / playlist: ha-music play \"<query>\" [--player satellites|tv|hisense]\n"
+        "   - For EVERY song, artist, album, playlist, music, or radio request, use the unified `ha-music` CLI. It routes playback through the Music Assistant integration, whose providers include RadioBrowser/library radio and YouTube Music.\n"
+        "     * Play radio / song / artist / album / playlist: ha-music play \"<query>\" [--player satellites|bluetooth|tv|hisense]\n"
         "       Examples: ha-music play \"Imagine 89.7\", ha-music play \"Paidaki 97.5\", ha-music play \"Queen Bohemian Rhapsody\"\n"
         "     * Playback controls: ha-music pause, ha-music resume, ha-music stop, ha-music next, ha-music volume 50\n"
-        "     * Direct YouTube caching: ha-play-youtube \"<YouTube URL or Song Title>\" [target_entity_id]\n"
-        "   - ha-music automatically searches Music Assistant first, streams live radio, and seamlessly falls back to cached YouTube audio streaming.\n\n"
+        "   - Never invoke `ha-play-youtube` directly for a normal request. `ha-music` owns the emergency fallback and permits it only after both MASS search/URI playback and MASS direct query resolution fail.\n\n"
         "CRITICAL INSTRUCTIONS:\n"
         "1. NEVER give up or say you lack access to Home Assistant! Use your shell tools to inspect states, query the database, calculate the metrics, and deliver the answer.\n"
         "2. ALL RESPONSES MUST BE IN GREEK (Ελληνικά).\n"
@@ -619,7 +717,12 @@ def _execute_antigravity_cli(task_description: str, thinking_level: str = "high"
 
 
 
-def _run_heavy_agent(task_or_envelope, is_voice: bool = True):
+def _run_heavy_agent(
+    task_or_envelope,
+    is_voice: bool = True,
+    target_media_player: str = None,
+    target_satellite_id: str = None,
+):
     import threading
     start_time = time.time()
     
@@ -647,9 +750,10 @@ def _run_heavy_agent(task_or_envelope, is_voice: bool = True):
         "You are the Antigravity Heavy Agent running inside a Home Assistant add-on container. "
         "CRITICAL: ALL YOUR RESPONSES MUST BE IN GREEK (Ελληνικά). Never use English in your final answer to the user. "
         "Your task is to autonomously solve complex problems. You have access to tools including "
-        "execute_shell, query_database, render_template, get_ha_history, call_ha_service, get_ha_states, and search_web. "
+        "execute_shell, query_database, render_template, get_ha_history, call_ha_service, get_ha_states, search_web, play_music, and control_music. "
         "You have absolute freedom and MUST use your tools dynamically to solve problems. "
         "You have absolute freedom to interact with Home Assistant. You can use the `execute_shell` tool with `curl` to query or control the Home Assistant REST API at `http://supervisor/core/api/...` using the `$SUPERVISOR_TOKEN` environment variable (e.g., `curl -H 'Authorization: Bearer $SUPERVISOR_TOKEN' http://supervisor/core/api/states`), or use helper commands: ha-template, ha-query, ha-history, ha-db. "
+        "For every request to play music, a song, artist, album, playlist, or radio station, you MUST use `play_music`; it always uses Music Assistant with its radio and YouTube Music providers. Use `control_music` for playback and volume controls. Never bypass these tools with raw media_player or YouTube calls. "
         "If the user asks you to wait or set a timer/reminder, you MUST use `execute_shell` to run `sleep <seconds>` "
         "or write a background python script to actually block execution for the requested time. "
         "Do not just reply that you did it, do it! "
@@ -740,6 +844,31 @@ def _run_heavy_agent(task_or_envelope, is_voice: bool = True):
                     }
                 },
                 {
+                    "name": "play_music",
+                    "description": "Play any song, artist, album, playlist, music selection, or radio station through Music Assistant (MASS). MASS searches its RadioBrowser/library radio and YouTube Music providers; its internal YouTube stream helper is used only if every MASS playback path fails. Always use this tool for playback requests.",
+                    "parameters": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "query": {"type": "STRING", "description": "Song, artist, album, playlist, or radio query."},
+                            "player": {"type": "STRING", "description": "Optional target. Omit for the current wake speaker; use media_player.notifications_group for all available MASS speakers."}
+                        },
+                        "required": ["query"]
+                    }
+                },
+                {
+                    "name": "control_music",
+                    "description": "Control the active Music Assistant queue and its underlying Home Assistant player: stop, pause, resume, next, previous, volume_up, volume_down, or volume_set.",
+                    "parameters": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "action": {"type": "STRING", "description": "Playback or volume action."},
+                            "volume": {"type": "NUMBER", "description": "0-100 when action is volume_set."},
+                            "player": {"type": "STRING", "description": "Optional target. Omit for the current wake speaker; use media_player.notifications_group for all speakers."}
+                        },
+                        "required": ["action"]
+                    }
+                },
+                {
                     "name": "store_memory",
                     "description": "Store an important user preference or fact into the memory database.",
                     "parameters": {
@@ -762,6 +891,15 @@ def _run_heavy_agent(task_or_envelope, is_voice: bool = True):
         "get_ha_states": lambda args: tool_broker.get_ha_states(args.get("entity_id", "")),
         "call_ha_service": lambda args: tool_broker.call_ha_service(args.get("domain", ""), args.get("service", ""), args.get("service_data")),
         "search_web": lambda args: tool_broker.search_web(args.get("query", "")),
+        "play_music": lambda args: tool_play_music(
+            args.get("query", ""),
+            player=args.get("player") or target_media_player,
+        ),
+        "control_music": lambda args: tool_control_music(
+            args.get("action", ""),
+            player=args.get("player") or target_media_player,
+            volume=args.get("volume"),
+        ),
         "store_memory": lambda args: tool_store_memory(args.get("fact", "")),
     }
 
@@ -907,7 +1045,9 @@ def _run_heavy_agent(task_or_envelope, is_voice: bool = True):
                 "task": task_description,
                 "tts_engine": curr_engine,
                 "tts_voice": curr_voice,
-                "is_voice": is_voice
+                "is_voice": is_voice,
+                "target_media_player": target_media_player or "media_player.notifications_group",
+                "target_satellite_id": target_satellite_id or "",
             }
             resp = http_requests.post(event_url, headers=_supervisor_headers(), json=event_payload, timeout=5)
             if resp.status_code != 200:
@@ -926,7 +1066,9 @@ def tool_delegate_to_antigravity(
     immediate_reply: str = "Το ελέγχω αναλυτικά και θα σε ενημερώσω.",
     reason_code: str = REASON_GENERAL_ESCALATION,
     resolved_entities: list = None,
-    is_voice: bool = True
+    is_voice: bool = True,
+    target_media_player: str = None,
+    target_satellite_id: str = None,
 ) -> str:
     """Delegate a complex task to the Antigravity heavy agent using a structured DelegationEnvelope."""
     import threading
@@ -940,7 +1082,16 @@ def tool_delegate_to_antigravity(
         resolved_entities=resolved_entities or [],
         delegation_depth=1
     )
-    threading.Thread(target=_run_heavy_agent, args=(envelope,), kwargs={"is_voice": is_voice}, daemon=True).start()
+    threading.Thread(
+        target=_run_heavy_agent,
+        args=(envelope,),
+        kwargs={
+            "is_voice": is_voice,
+            "target_media_player": target_media_player,
+            "target_satellite_id": target_satellite_id,
+        },
+        daemon=True,
+    ).start()
     return "I have delegated the task to the Heavy Agent. I will notify you when it's done."
 
 
@@ -1051,17 +1202,17 @@ GEMINI_TOOLS = [{
         },
         {
             "name": "play_music",
-            "description": "Play music, radio stations, songs, or playlists using the Music Assistant bridge and streaming engine. Call this whenever the user asks to play music, a radio station (e.g. 'Βάλε Imagine 89.7', 'Βάλε Παιδάκι 97.5', 'βάλε ραδιόφωνο'), a song, artist, playlist, or YouTube audio.",
+            "description": "Play ANY music request through Music Assistant (MASS): songs, artists, albums, playlists, general music, and radio stations. MASS searches both its radio providers and its integrated YouTube Music provider. Always call this tool for playback; do not call media_player.play_media or a YouTube helper yourself.",
             "parameters": {
                 "type": "OBJECT",
                 "properties": {
                     "query": {
                         "type": "STRING",
-                        "description": "The song title, radio station name, artist, or playlist to play (e.g. 'Imagine 89.7', 'Paidaki 97.5', 'Queen Bohemian Rhapsody', 'παιδικά τραγούδια')."
+                        "description": "The song, artist, album, playlist, music selection, or radio station to resolve in MASS (e.g. 'Imagine 89.7', 'Paidaki 97.5', 'Queen Bohemian Rhapsody', 'παιδικά τραγούδια')."
                     },
                     "player": {
                         "type": "STRING",
-                        "description": "Optional target player: 'satellites' (default, smart speakers), 'tv' (living room TV / OLED), 'hisense', or a specific media_player entity ID."
+                        "description": "Optional target. Omit it to use the speaker that heard the wake word. For 'όλα τα ηχεία'/'παντού', use 'media_player.notifications_group'. Other choices include 'tv', 'hisense', 'bluetooth', or a specific media_player entity ID."
                     }
                 },
                 "required": ["query"],
@@ -1069,7 +1220,7 @@ GEMINI_TOOLS = [{
         },
         {
             "name": "control_music",
-            "description": "Control currently playing music (pause, resume, stop, next track, previous track, volume up/down/set). Call this whenever the user asks to stop, pause, resume, or adjust music volume.",
+            "description": "Control the active Music Assistant queue and its underlying Home Assistant player (pause, resume, stop, next, previous, volume up/down/set). Call this whenever the user asks to control current music or radio.",
             "parameters": {
                 "type": "OBJECT",
                 "properties": {
@@ -1083,7 +1234,7 @@ GEMINI_TOOLS = [{
                     },
                     "player": {
                         "type": "STRING",
-                        "description": "Optional target player or media_player entity."
+                        "description": "Optional target. Omit for the wake speaker; use media_player.notifications_group for all available MASS speakers."
                     }
                 },
                 "required": ["action"],
@@ -1105,7 +1256,9 @@ TOOL_DISPATCH = {
         args.get("immediate_reply", "Το ελέγχω αναλυτικά και θα σε ενημερώσω."),
         args.get("reason_code", REASON_GENERAL_ESCALATION),
         args.get("resolved_entities", []),
-        is_voice=args.get("is_voice", True)
+        is_voice=args.get("is_voice", True),
+        target_media_player=args.get("target_media_player"),
+        target_satellite_id=args.get("target_satellite_id"),
     ),
     "store_memory": lambda args: tool_store_memory(args.get("fact", "")),
     "play_music": lambda args: tool_play_music(args.get("query", ""), player=args.get("player")),
@@ -1120,7 +1273,7 @@ TOOL_DISPATCH = {
 
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="Antigravity Brain", version="2.0.0")
+app = FastAPI(title="Antigravity Brain", version="3.3.9")
 
 
 
@@ -1134,11 +1287,12 @@ SYSTEM_INSTRUCTION = (
     "DO NOT end normal answers or actions with generic follow-up questions like 'Χρειάζεσαι κάτι άλλο;' or 'Πώς μπορώ να σε βοηθήσω;' just to keep talking, and NEVER call keep_mic_open if the user's input is unclear, ambiguous noise, or you are asking 'Τι εννοείς;' — in that case, close the turn without calling keep_mic_open. "
     "\n\n"
     "MUSIC & AUDIO PLAYBACK POLICY:\n"
-    "1. For ANY music or radio playback request (e.g. 'βάλε μουσική', 'παίξε Imagine 89.7', 'βάλε Παιδάκι 97.5', 'παίξε ένα παιδικό τραγούδι', 'παίξε Beatles', 'play music'), you MUST call the `play_music` tool immediately!\n"
-    "   - Pass the query (e.g. 'Imagine 89.7', 'Paidaki 97.5', 'Queen Bohemian Rhapsody').\n"
-    "   - If the user specifies a device/room (e.g. 'στην τηλεόραση', 'στο σαλόνι', 'στο ηχείο'), pass player='tv' or player='satellites'. Default is 'satellites'.\n"
-    "2. For music playback controls (e.g. 'σταμάτα τη μουσική', 'παύση', 'συνέχισε', 'δυνάμωσε', 'χαμήλωσε', 'επόμενο τραγούδι'), call the `control_music` tool immediately.\n"
-    "3. Never attempt to manually call media_player.play_media with raw YouTube URLs or guess stream URLs yourself. Always use `play_music`.\n"
+    "1. For ANY request to play music, a song, artist, album, playlist, radio station, or general selection (e.g. 'βάλε μουσική', 'παίξε Imagine 89.7', 'βάλε Παιδάκι 97.5', 'παίξε ένα παιδικό τραγούδι', 'παίξε Beatles', 'play music'), you MUST call `play_music` immediately.\n"
+    "   - `play_music` always uses the Music Assistant integration. MASS searches its RadioBrowser/library radio and integrated YouTube Music providers, then plays on a MASS queue player.\n"
+    "   - Pass only the useful query (e.g. 'Imagine 89.7', 'Paidaki 97.5', 'Queen Bohemian Rhapsody'). Do not search the web first.\n"
+    "   - Omit `player` to use the room speaker that heard the wake word. For 'όλα τα ηχεία' or 'παντού', pass player='media_player.notifications_group'. Use player='tv' only when explicitly requested.\n"
+    "2. For music/radio controls (e.g. 'σταμάτα τη μουσική', 'παύση', 'συνέχισε', 'δυνάμωσε', 'χαμήλωσε', 'επόμενο τραγούδι'), call `control_music` immediately; it controls both the MASS queue and underlying player.\n"
+    "3. Never use `call_ha_service`, raw media_player.play_media, raw YouTube URLs, or a YouTube helper for playback. `play_music` alone owns the last-resort fallback after MASS fails.\n"
     "\n\n"
     "PERSISTENT LONG-TERM MEMORY POLICY:\n"
     "1. You have access to the `store_memory` tool. You MUST call `store_memory` whenever:\n"
@@ -1192,10 +1346,24 @@ def _build_gemini_contents(messages: list) -> tuple:
 
 
 
-def _execute_tool_calls(response, model_name, chat_history, config, user_prompt: str = "", is_voice: bool = True):
+def _execute_tool_calls(
+    response,
+    model_name,
+    chat_history,
+    config,
+    user_prompt: str = "",
+    is_voice: bool = True,
+    target_media_player: str = None,
+    target_satellite_id: str = None,
+):
     MAX_ROUNDS = 5
     current_response = response
     mic_opened = bool(is_voice)
+    heavy_agent_kwargs = {
+        "is_voice": is_voice,
+        "target_media_player": target_media_player,
+        "target_satellite_id": target_satellite_id,
+    }
     
     for round_idx in range(MAX_ROUNDS):
         candidate = current_response.candidates[0]
@@ -1213,7 +1381,7 @@ def _execute_tool_calls(response, model_name, chat_history, config, user_prompt:
                     if user_prompt:
                         print(f"[Fallback] Empty text in round {round_idx}, auto-delegating to Heavy Agent: {user_prompt}")
                         import threading
-                        t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,), kwargs={"is_voice": is_voice})
+                        t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,), kwargs=heavy_agent_kwargs)
                         t_thread.start()
                         return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω.", False
                     return "Συγγνώμη, παρακαλώ επαναλάβετε.", False
@@ -1222,7 +1390,7 @@ def _execute_tool_calls(response, model_name, chat_history, config, user_prompt:
                 if any(phrase in lower_t for phrase in ["δεν μπόρεσα να βρω", "δεν βρήκα", "δεν γνωρίζω", "δεν μπορώ να βρω", "δυστυχώς δεν"]) and user_prompt:
                     print(f"[Fallback] Fast agent apologized, auto-delegating to Heavy Agent: {user_prompt}")
                     import threading
-                    t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,), kwargs={"is_voice": is_voice})
+                    t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,), kwargs=heavy_agent_kwargs)
                     t_thread.start()
                     return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω.", False
 
@@ -1231,7 +1399,7 @@ def _execute_tool_calls(response, model_name, chat_history, config, user_prompt:
                 if user_prompt:
                     print(f"[Fallback] ValueError on response.text, auto-delegating to Heavy Agent: {user_prompt}")
                     import threading
-                    t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,), kwargs={"is_voice": is_voice})
+                    t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,), kwargs=heavy_agent_kwargs)
                     t_thread.start()
                     return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω.", False
                 return "(No response generated)", False
@@ -1242,6 +1410,17 @@ def _execute_tool_calls(response, model_name, chat_history, config, user_prompt:
             fn_args = dict(fc.args) if fc.args else {}
             if fn_name == "delegate_to_antigravity":
                 fn_args["is_voice"] = is_voice
+                fn_args["target_media_player"] = target_media_player
+                fn_args["target_satellite_id"] = target_satellite_id
+            if (
+                fn_name in ("play_music", "control_music")
+                and is_voice
+                and target_media_player
+                and target_media_player != "media_player.notifications_group"
+                and str(fn_args.get("player") or "").strip().lower()
+                in ("", "satellite", "speaker", "ηχείο")
+            ):
+                fn_args["player"] = target_media_player
             if fn_name == "keep_mic_open":
                 mic_opened = True
             if fn_name == "play_music":
@@ -1293,7 +1472,7 @@ def _execute_tool_calls(response, model_name, chat_history, config, user_prompt:
             if any(phrase in lower_text for phrase in ["δεν μπόρεσα να βρω", "δεν βρήκα", "δεν γνωρίζω", "δεν μπορώ να", "δυστυχώς δεν"]) and user_prompt:
                 print(f"[Fallback] Fast Agent apologized after exhausting rounds, auto-delegating to Heavy Agent: {user_prompt}")
                 import threading
-                t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,), kwargs={"is_voice": is_voice})
+                t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,), kwargs=heavy_agent_kwargs)
                 t_thread.start()
                 return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω.", False
             return final_text, mic_opened
@@ -1303,7 +1482,7 @@ def _execute_tool_calls(response, model_name, chat_history, config, user_prompt:
     if user_prompt:
         print(f"[Fallback] Exhausted rounds without final text. Auto-delegating to Heavy Agent: {user_prompt}")
         import threading
-        t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,), kwargs={"is_voice": is_voice})
+        t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,), kwargs=heavy_agent_kwargs)
         t_thread.start()
         return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω.", False
 
@@ -1336,7 +1515,16 @@ def _get_openai_tools():
     return tools
 
 
-def _execute_openai_chat(messages, system_prompt, model_name, token, user_prompt, is_voice: bool = True):
+def _execute_openai_chat(
+    messages,
+    system_prompt,
+    model_name,
+    token,
+    user_prompt,
+    is_voice: bool = True,
+    target_media_player: str = None,
+    target_satellite_id: str = None,
+):
     """Execute Fast Agent query against OpenAI API with tool support."""
     tools = _get_openai_tools()
     openai_msgs = [{"role": "system", "content": system_prompt}]
@@ -1387,6 +1575,17 @@ def _execute_openai_chat(messages, system_prompt, model_name, token, user_prompt
                 fn_args = {}
             if fn_name == "delegate_to_antigravity":
                 fn_args["is_voice"] = is_voice
+                fn_args["target_media_player"] = target_media_player
+                fn_args["target_satellite_id"] = target_satellite_id
+            if (
+                fn_name in ("play_music", "control_music")
+                and is_voice
+                and target_media_player
+                and target_media_player != "media_player.notifications_group"
+                and str(fn_args.get("player") or "").strip().lower()
+                in ("", "satellite", "speaker", "ηχείο")
+            ):
+                fn_args["player"] = target_media_player
             if fn_name == "keep_mic_open":
                 mic_opened = True
             if fn_name == "play_music":
@@ -1418,6 +1617,13 @@ async def chat_completions(request: Request):
 
     messages = data.get("messages", [])
     is_voice = data.get("is_voice", False)
+    device_id = data.get("device_id")
+    satellite_id = data.get("satellite_id")
+    target_media_player, target_satellite_id = _resolve_voice_target(
+        device_id=device_id,
+        satellite_id=satellite_id,
+        is_voice=is_voice,
+    )
     conv_id = data.get("conversation_id") or uuid.uuid4().hex
 
     req_model = _normalize_model_option(data.get("model", selected_model), selected_model)
@@ -1432,7 +1638,16 @@ async def chat_completions(request: Request):
             # Voice Mode: immediate spoken reassurance, background execution, announce on speaker
             if last_msg:
                 import threading
-                t = threading.Thread(target=_run_heavy_agent, args=(last_msg,), kwargs={"is_voice": True}, daemon=True)
+                t = threading.Thread(
+                    target=_run_heavy_agent,
+                    args=(last_msg,),
+                    kwargs={
+                        "is_voice": True,
+                        "target_media_player": target_media_player,
+                        "target_satellite_id": target_satellite_id,
+                    },
+                    daemon=True,
+                )
                 t.start()
             return {
                 "id": "chatcmpl-heavy",
@@ -1451,7 +1666,14 @@ async def chat_completions(request: Request):
             if last_msg:
                 import asyncio
                 loop = asyncio.get_event_loop()
-                markdown_res, _ = await loop.run_in_executor(None, _run_heavy_agent, last_msg, False)
+                markdown_res, _ = await loop.run_in_executor(
+                    None,
+                    _run_heavy_agent,
+                    last_msg,
+                    False,
+                    target_media_player,
+                    target_satellite_id,
+                )
             else:
                 markdown_res = "Δεν δόθηκε ερώτημα για επεξεργασία."
 
@@ -1532,7 +1754,16 @@ async def chat_completions(request: Request):
             use_openai = (fast_agent_engine == "openai_api")
 
         if use_openai:
-            content, mic_opened = _execute_openai_chat(effective_messages, final_system, effective_model, fast_agent_api_key, user_text, is_voice=is_voice)
+            content, mic_opened = _execute_openai_chat(
+                effective_messages,
+                final_system,
+                effective_model,
+                fast_agent_api_key,
+                user_text,
+                is_voice=is_voice,
+                target_media_player=target_media_player,
+                target_satellite_id=target_satellite_id,
+            )
         else:
             config = {
                 "system_instruction": final_system,
@@ -1552,7 +1783,16 @@ async def chat_completions(request: Request):
                 contents=chat_history,
                 config=config
             )
-            content, mic_opened = _execute_tool_calls(response, gemini_model_name, chat_history, config, user_prompt=user_text, is_voice=is_voice)
+            content, mic_opened = _execute_tool_calls(
+                response,
+                gemini_model_name,
+                chat_history,
+                config,
+                user_prompt=user_text,
+                is_voice=is_voice,
+                target_media_player=target_media_player,
+                target_satellite_id=target_satellite_id,
+            )
 
     except Exception as e:
         print(f"Error calling {fast_agent_engine}: {e}")
@@ -1560,7 +1800,15 @@ async def chat_completions(request: Request):
         if user_text:
             print(f"[Fallback] {fast_agent_engine} error, auto-delegating to Heavy Agent: {user_text}")
             import threading
-            t = threading.Thread(target=_run_heavy_agent, args=(user_text,), kwargs={"is_voice": is_voice})
+            t = threading.Thread(
+                target=_run_heavy_agent,
+                args=(user_text,),
+                kwargs={
+                    "is_voice": is_voice,
+                    "target_media_player": target_media_player,
+                    "target_satellite_id": target_satellite_id,
+                },
+            )
             t.start()
             content = "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω."
         else:
@@ -1681,7 +1929,7 @@ async def get_api_status():
     curr_tts_engine, curr_tts_voice = get_tts_config()
     return {
         "status": "ok",
-        "version": "3.3.8",
+        "version": "3.3.9",
         "fast_agent": {
             "engine": fast_agent_engine,
             "model": fast_agent_model,
@@ -1820,7 +2068,7 @@ def health_check():
 
 
 if __name__ == "__main__":
-    print(f"Starting Antigravity Brain v3.3.6")
+    print(f"Starting Antigravity Brain v3.3.9")
     print(f"  Phase 1 (Fast Agent): engine={fast_agent_engine}, model={fast_agent_model}, thinking={fast_agent_thinking}")
     print(f"  Phase 2 (Heavy Agent): engine={heavy_agent_engine}, thinking={heavy_agent_thinking}")
     print(f"  Port: {PORT}")
