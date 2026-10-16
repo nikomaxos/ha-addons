@@ -36,34 +36,44 @@ MASS_CONFIG_ENTRY_ID = "01KK4T9XXYV9CR1SS6YDTEYH7A"
 PLAYER_MAP = {
     # Satellites / Default smart speakers
     "satellites": {
-        "mass_player": "media_player.lva_dca63226cf9d_media_player_2",
-        "ha_player": "media_player.antigravity_satellites",
+        "mass_player": "media_player.lva_kouzina_media_player_3",
+        "ha_player": "media_player.notifications_group",
         "name": "στα ηχεία του σπιτιού"
     },
     "satellite": {
-        "mass_player": "media_player.lva_dca63226cf9d_media_player_2",
-        "ha_player": "media_player.antigravity_satellites",
+        "mass_player": "media_player.lva_kouzina_media_player_3",
+        "ha_player": "media_player.notifications_group",
         "name": "στα ηχεία του σπιτιού"
     },
     "speaker": {
-        "mass_player": "media_player.lva_dca63226cf9d_media_player_2",
-        "ha_player": "media_player.antigravity_satellites",
+        "mass_player": "media_player.lva_kouzina_media_player_3",
+        "ha_player": "media_player.notifications_group",
         "name": "στο ηχείο"
     },
     "ηχείο": {
-        "mass_player": "media_player.lva_dca63226cf9d_media_player_2",
-        "ha_player": "media_player.antigravity_satellites",
+        "mass_player": "media_player.lva_kouzina_media_player_3",
+        "ha_player": "media_player.notifications_group",
         "name": "στο ηχείο"
     },
     "ηχεία": {
-        "mass_player": "media_player.lva_dca63226cf9d_media_player_2",
-        "ha_player": "media_player.antigravity_satellites",
+        "mass_player": "media_player.lva_kouzina_media_player_3",
+        "ha_player": "media_player.notifications_group",
         "name": "στα ηχεία"
     },
     "σαλόνι": {
-        "mass_player": "media_player.lva_dca63226cf9d_media_player_2",
-        "ha_player": "media_player.antigravity_satellites",
+        "mass_player": "media_player.lva_kouzina_media_player_3",
+        "ha_player": "media_player.notifications_group",
         "name": "στο σαλόνι"
+    },
+    "κουζίνα": {
+        "mass_player": "media_player.lva_kouzina_media_player_3",
+        "ha_player": "media_player.lva_kouzina_media_player",
+        "name": "στην κουζίνα"
+    },
+    "bluetooth": {
+        "mass_player": "media_player.lva_bluetooth_speaker_media_player_2",
+        "ha_player": "media_player.lva_bluetooth_speaker_media_player",
+        "name": "στο Bluetooth ηχείο"
     },
     # Philips OLED TV
     "tv": {
@@ -120,7 +130,7 @@ def _resolve_target_player(player_hint: Optional[str] = None) -> Dict[str, str]:
 
     # Entity ID passed directly
     if hint.startswith("media_player."):
-        if hint == "media_player.antigravity_satellites" or hint == "media_player.lva_dca63226cf9d_media_player":
+        if hint in ("media_player.notifications_group", "media_player.antigravity_satellites", "media_player.lva_kouzina_media_player", "media_player.lva_dca63226cf9d_media_player"):
             return PLAYER_MAP["satellites"]
         return {
             "mass_player": hint,

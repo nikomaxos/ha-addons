@@ -11,7 +11,7 @@ def main():
         sys.exit(1)
 
     query = sys.argv[1].strip()
-    target_entity = sys.argv[2].strip() if len(sys.argv) > 2 else "media_player.antigravity_satellites"
+    target_entity = sys.argv[2].strip() if len(sys.argv) > 2 else "media_player.notifications_group"
     supervisor_token = os.environ.get("SUPERVISOR_TOKEN", "")
 
     cache_dir = "/homeassistant/www/music_cache"

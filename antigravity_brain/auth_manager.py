@@ -356,7 +356,7 @@ class CodexAuthManager:
             if (8 <= now_hour < 14) or (17 <= now_hour < 22):
                 tts_url = f"{self.supervisor_url}/services/tts/google_cloud_say"
                 payload = {
-                    "entity_id": "media_player.antigravity_satellites",
+                    "entity_id": "media_player.notifications_group",
                     "message": "Η σύνδεση του Codex ολοκληρώθηκε επιτυχώς."
                 }
                 http_requests.post(tts_url, headers=self._headers(), json=payload, timeout=5)

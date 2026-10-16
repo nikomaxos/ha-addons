@@ -1,6 +1,6 @@
 name: "Antigravity Brain"
 description: "Smart Voice Assistant Brain powered by Codex, Antigravity, and Gemini with two-phase response"
-version: "3.3.7"
+version: "3.3.8"
 slug: "antigravity_brain"
 init: true
 arch:

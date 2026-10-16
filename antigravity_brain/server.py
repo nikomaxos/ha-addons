@@ -452,7 +452,7 @@ def _execute_codex_cli(task_description: str, thinking_level: str = "high") -> t
         "3. Web Search & Data Processing:\n"
         "   - Use python3 with urllib or ddgs, curl, jq, etc., to search the web or process data.\n"
         "4. Playing Music / Audio / Radio via Music Assistant & YouTube Streaming:\n"
-        "   - CRITICAL: Home Assistant satellite speakers (e.g. `media_player.antigravity_satellites` / ESPHome) DO NOT support raw YouTube web URLs (https://www.youtube.com/...). Never send raw YouTube web URLs to media_player.play_media!\n"
+        "   - CRITICAL: Home Assistant satellite speakers (e.g. `media_player.notifications_group` / ESPHome) DO NOT support raw YouTube web URLs (https://www.youtube.com/...). Never send raw YouTube web URLs to media_player.play_media!\n"
         "   - Use the unified CLI tool available in your PATH: `ha-music`\n"
         "     * Play radio / song / playlist: ha-music play \"<query>\" [--player satellites|tv|hisense]\n"
         "       Examples: ha-music play \"Imagine 89.7\", ha-music play \"Paidaki 97.5\", ha-music play \"Queen Bohemian Rhapsody\"\n"
@@ -577,7 +577,7 @@ def _execute_antigravity_cli(task_description: str, thinking_level: str = "high"
         "3. Web Search & Data Processing:\n"
         "   - Use python3 with urllib or ddgs, curl, jq, etc., to search the web or process data.\n"
         "4. Playing Music / Audio / Radio via Music Assistant & YouTube Streaming:\n"
-        "   - CRITICAL: Home Assistant satellite speakers (e.g. `media_player.antigravity_satellites` / ESPHome) DO NOT support raw YouTube web URLs (https://www.youtube.com/...). Never send raw YouTube web URLs to media_player.play_media!\n"
+        "   - CRITICAL: Home Assistant satellite speakers (e.g. `media_player.notifications_group` / ESPHome) DO NOT support raw YouTube web URLs (https://www.youtube.com/...). Never send raw YouTube web URLs to media_player.play_media!\n"
         "   - Use the unified CLI tool available in your PATH: `ha-music`\n"
         "     * Play radio / song / playlist: ha-music play \"<query>\" [--player satellites|tv|hisense]\n"
         "       Examples: ha-music play \"Imagine 89.7\", ha-music play \"Paidaki 97.5\", ha-music play \"Queen Bohemian Rhapsody\"\n"
@@ -1195,7 +1195,7 @@ def _build_gemini_contents(messages: list) -> tuple:
 def _execute_tool_calls(response, model_name, chat_history, config, user_prompt: str = "", is_voice: bool = True):
     MAX_ROUNDS = 5
     current_response = response
-    mic_opened = False
+    mic_opened = bool(is_voice)
     
     for round_idx in range(MAX_ROUNDS):
         candidate = current_response.candidates[0]
@@ -1215,8 +1215,8 @@ def _execute_tool_calls(response, model_name, chat_history, config, user_prompt:
                         import threading
                         t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,), kwargs={"is_voice": is_voice})
                         t_thread.start()
-                        return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω.", mic_opened
-                    return "Συγγνώμη, παρακαλώ επαναλάβετε.", mic_opened
+                        return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω.", False
+                    return "Συγγνώμη, παρακαλώ επαναλάβετε.", False
                 
                 lower_t = t.lower()
                 if any(phrase in lower_t for phrase in ["δεν μπόρεσα να βρω", "δεν βρήκα", "δεν γνωρίζω", "δεν μπορώ να βρω", "δυστυχώς δεν"]) and user_prompt:
@@ -1224,7 +1224,7 @@ def _execute_tool_calls(response, model_name, chat_history, config, user_prompt:
                     import threading
                     t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,), kwargs={"is_voice": is_voice})
                     t_thread.start()
-                    return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω.", mic_opened
+                    return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω.", False
 
                 return t, mic_opened
             except ValueError:
@@ -1233,8 +1233,8 @@ def _execute_tool_calls(response, model_name, chat_history, config, user_prompt:
                     import threading
                     t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,), kwargs={"is_voice": is_voice})
                     t_thread.start()
-                    return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω.", mic_opened
-                return "(No response generated)", mic_opened
+                    return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω.", False
+                return "(No response generated)", False
         
         function_responses = []
         for fc in function_calls:
@@ -1244,6 +1244,10 @@ def _execute_tool_calls(response, model_name, chat_history, config, user_prompt:
                 fn_args["is_voice"] = is_voice
             if fn_name == "keep_mic_open":
                 mic_opened = True
+            if fn_name == "play_music":
+                mic_opened = False
+            if fn_name == "control_music" and str(fn_args.get("action", "")).lower() in ("resume", "play", "συνέχισε", "ξεκίνα"):
+                mic_opened = False
             
             print(f"[Tool Call] {fn_name}({json.dumps(fn_args, ensure_ascii=False)[:200]})")
             
@@ -1291,7 +1295,7 @@ def _execute_tool_calls(response, model_name, chat_history, config, user_prompt:
                 import threading
                 t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,), kwargs={"is_voice": is_voice})
                 t_thread.start()
-                return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω.", mic_opened
+                return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω.", False
             return final_text, mic_opened
     except Exception:
         pass
@@ -1301,9 +1305,9 @@ def _execute_tool_calls(response, model_name, chat_history, config, user_prompt:
         import threading
         t_thread = threading.Thread(target=_run_heavy_agent, args=(user_prompt,), kwargs={"is_voice": is_voice})
         t_thread.start()
-        return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω.", mic_opened
+        return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω.", False
 
-    return "(No response generated)", mic_opened
+    return "(No response generated)", False
 
 def _get_openai_tools():
     """Convert GEMINI_TOOLS function declarations into OpenAI tools schema."""
@@ -1353,7 +1357,7 @@ def _execute_openai_chat(messages, system_prompt, model_name, token, user_prompt
     if not req_model or "flash" in req_model.lower() or "gemini" in req_model.lower():
         req_model = "gpt-6-luna"
 
-    mic_opened = False
+    mic_opened = bool(is_voice)
     for round_idx in range(5):
         payload = {
             "model": req_model,
@@ -1385,6 +1389,10 @@ def _execute_openai_chat(messages, system_prompt, model_name, token, user_prompt
                 fn_args["is_voice"] = is_voice
             if fn_name == "keep_mic_open":
                 mic_opened = True
+            if fn_name == "play_music":
+                mic_opened = False
+            if fn_name == "control_music" and str(fn_args.get("action", "")).lower() in ("resume", "play", "συνέχισε", "ξεκίνα"):
+                mic_opened = False
             print(f"[OpenAI Tool Call] {fn_name}({json.dumps(fn_args, ensure_ascii=False)[:200]})")
             handler = TOOL_DISPATCH.get(fn_name)
             res_val = handler(fn_args) if handler else f"Unknown tool: {fn_name}"
@@ -1399,7 +1407,7 @@ def _execute_openai_chat(messages, system_prompt, model_name, token, user_prompt
                 "content": str(res_val)
             })
 
-    return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω.", mic_opened
+    return "Το ελέγχω αναλυτικά. Δώσε μου λίγο χρόνο να το ψάξω.", False
 
 
 @app.post("/v1/chat/completions")
@@ -1548,6 +1556,7 @@ async def chat_completions(request: Request):
 
     except Exception as e:
         print(f"Error calling {fast_agent_engine}: {e}")
+        mic_opened = False
         if user_text:
             print(f"[Fallback] {fast_agent_engine} error, auto-delegating to Heavy Agent: {user_text}")
             import threading
@@ -1557,9 +1566,20 @@ async def chat_completions(request: Request):
         else:
             content = f"Error calling {fast_agent_engine}: {e}"
 
-    # Prevent endless follow-up loop on unclear/hallucinated follow-up turns
-    if conv_state.last_turn_opened_mic and mic_opened:
-        lower_reply = (content or "").lower()
+    # Prevent endless follow-up loop on closing phrases or unclear/hallucinated follow-up turns
+    if is_voice and mic_opened:
+        lower_user = (user_text or "").strip().lower().rstrip(".!;;?")
+        lower_reply = (content or "").strip().lower()
+        user_stop_phrases = [
+            "ευχαριστώ", "ευχαριστω", "τίποτα", "τιποτα", "τίποτα άλλο", "τιποτα αλλο",
+            "όχι", "οχι", "όχι ευχαριστώ", "οχι ευχαριστω", "εντάξει ευχαριστώ",
+            "καληνύχτα", "καληνυχτα", "γεια", "σταμάτα", "σταματα",
+            "κλείσε", "κλεισε", "τέλος", "τελος",
+        ]
+        if lower_user in user_stop_phrases:
+            print("[Follow-Up] User used closing phrase; closing conversation cycle.")
+            mic_opened = False
+
         clarification_phrases = [
             "τι εννοείς",
             "τι ακριβώς εννοείς",
@@ -1569,9 +1589,16 @@ async def chat_completions(request: Request):
             "πώς μπορώ να σε βοηθήσω",
             "με συγχωρείς αν δεν ήμουν σαφής",
             "τι χρειάζεσαι",
+            "δεν άκουσα",
+            "παρακαλώ επαναλάβετε",
+            "μπορείς να επαναλάβεις",
+            "το ελέγχω αναλυτικά",
+            "το ψάχνω αμέσως",
+            "error calling",
+            "σφάλμα επικοινωνίας",
         ]
         if any(p in lower_reply for p in clarification_phrases):
-            print("[Anti-Loop] Suppressing consecutive keep_mic_open on clarification reply.")
+            print("[Anti-Loop] Suppressing keep_mic_open on clarification/handoff reply.")
             mic_opened = False
 
     conv_state.last_turn_opened_mic = mic_opened
@@ -1654,7 +1681,7 @@ async def get_api_status():
     curr_tts_engine, curr_tts_voice = get_tts_config()
     return {
         "status": "ok",
-        "version": "3.3.7",
+        "version": "3.3.8",
         "fast_agent": {
             "engine": fast_agent_engine,
             "model": fast_agent_model,
