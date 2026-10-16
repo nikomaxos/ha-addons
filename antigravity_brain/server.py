@@ -63,6 +63,7 @@ from dashboard_html import get_dashboard_html
 class ConversationState:
     messages: list = field(default_factory=list)
     last_access: float = field(default_factory=time.monotonic)
+    last_turn_opened_mic: bool = False
 
 CONVERSATIONS: OrderedDict[str, ConversationState] = OrderedDict()
 SESSION_TTL_SECONDS = 3600  # 1 hour
@@ -362,28 +363,8 @@ def tool_search_web(query: str) -> str:
 
 
 def tool_keep_mic_open() -> str:
-
-    """Fire the keep_mic_open_event event to keep the microphone open for follow-up."""
-
-    if not SUPERVISOR_TOKEN:
-
-        return "Error: SUPERVISOR_TOKEN not available."
-
-    url = f"{SUPERVISOR_URL}/events/keep_mic_open_event"
-
-    try:
-
-        resp = http_requests.post(url, headers=_supervisor_headers(), json={}, timeout=5)
-
-        if resp.status_code == 200:
-
-            return "Microphone will stay open for follow-up."
-
-        return f"Error firing event: HTTP {resp.status_code}"
-
-    except Exception as e:
-
-        return f"Error: {e}"
+    """Keep the microphone open for a single follow-up via native continue_conversation."""
+    return "Microphone will stay open for follow-up."
 
 
 
@@ -1149,7 +1130,8 @@ SYSTEM_INSTRUCTION = (
     "CRITICAL: Always respond in Greek (Ελληνικά), no matter what. "
     "Be concise and output natural language suitable for Text-to-Speech (TTS). "
     "Do not include markdown, code blocks, or special formatting in your response. "
-    "When you ask the user a question, always call the keep_mic_open tool so the microphone stays open for their answer. "
+    "When you ask a specific clarifying question that requires an immediate answer from the user (e.g. which light to turn on), call the keep_mic_open tool so the microphone stays open once for their answer. "
+    "DO NOT end normal answers or actions with generic follow-up questions like 'Χρειάζεσαι κάτι άλλο;' or 'Πώς μπορώ να σε βοηθήσω;' just to keep talking, and NEVER call keep_mic_open if the user's input is unclear, ambiguous noise, or you are asking 'Τι εννοείς;' — in that case, close the turn without calling keep_mic_open. "
     "\n\n"
     "MUSIC & AUDIO PLAYBACK POLICY:\n"
     "1. For ANY music or radio playback request (e.g. 'βάλε μουσική', 'παίξε Imagine 89.7', 'βάλε Παιδάκι 97.5', 'παίξε ένα παιδικό τραγούδι', 'παίξε Beatles', 'play music'), you MUST call the `play_music` tool immediately!\n"
@@ -1575,6 +1557,25 @@ async def chat_completions(request: Request):
         else:
             content = f"Error calling {fast_agent_engine}: {e}"
 
+    # Prevent endless follow-up loop on unclear/hallucinated follow-up turns
+    if conv_state.last_turn_opened_mic and mic_opened:
+        lower_reply = (content or "").lower()
+        clarification_phrases = [
+            "τι εννοείς",
+            "τι ακριβώς εννοείς",
+            "σε τι αναφέρεσαι",
+            "σε τι ακριβώς αναφέρεσ",
+            "δεν κατάλαβα",
+            "πώς μπορώ να σε βοηθήσω",
+            "με συγχωρείς αν δεν ήμουν σαφής",
+            "τι χρειάζεσαι",
+        ]
+        if any(p in lower_reply for p in clarification_phrases):
+            print("[Anti-Loop] Suppressing consecutive keep_mic_open on clarification reply.")
+            mic_opened = False
+
+    conv_state.last_turn_opened_mic = mic_opened
+
     # Record assistant turn in session state
     conv_state.messages.append({
         "role": "assistant",
@@ -1653,7 +1654,7 @@ async def get_api_status():
     curr_tts_engine, curr_tts_voice = get_tts_config()
     return {
         "status": "ok",
-        "version": "3.3.6",
+        "version": "3.3.7",
         "fast_agent": {
             "engine": fast_agent_engine,
             "model": fast_agent_model,
