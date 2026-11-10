@@ -41,6 +41,10 @@ def main() -> None:
         bridge = MqttBridge(mqtt_cfg, on_command=lambda name: _safe_command(opt, name, log))
         opt.mqtt = bridge
         bridge.start()
+        try:
+            opt.publish_status()
+        except Exception:  # noqa: BLE001
+            pass
     else:
         store.event("mqtt", "MQTT service unavailable — hp_opt_* entities disabled")
 

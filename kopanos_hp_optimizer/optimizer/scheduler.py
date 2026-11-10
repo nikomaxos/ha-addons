@@ -190,6 +190,10 @@ class Optimizer:
                 self.store.put("last_heartbeat", now.isoformat())
         if self.mqtt:
             self.mqtt.online()
+            try:
+                self.publish_status()
+            except Exception:  # noqa: BLE001
+                pass
         try:
             self.notifier.retry_pending(now)
         except Exception:  # noqa: BLE001
