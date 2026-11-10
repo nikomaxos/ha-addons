@@ -1,0 +1,60 @@
+name: "Kopanos HP Optimizer"
+description: "Winter-long heat pump optimizer: KPIs, randomized A/B, per-zone autotune of HA helpers (never writes to the pump)"
+version: "0.1.0"
+slug: "kopanos_hp_optimizer"
+url: "https://github.com/ha-addons/kopanos_hp_optimizer"
+arch:
+  - amd64
+  - aarch64
+startup: application
+boot: auto
+init: false
+homeassistant_api: true
+hassio_api: false
+services:
+  - mqtt:need
+ingress: true
+ingress_port: 8010
+ingress_panel: true
+panel_icon: mdi:heat-pump
+panel_title: "HP Optimizer"
+watchdog: "tcp://[HOST]:[PORT:8010]"
+options:
+  mode: observe
+  report_hour: "10:30"
+  notify_targets: []
+  llm_provider: "none"
+  llm_brain_url: ""
+  llm_model: "gemini-3.8-flash"
+  anthropic_model: "claude-sonnet-4-6"
+  person_entity: ""
+  remote_tts_entity: tts.google_cloud
+  remote_tts_voice: "el-GR-Chirp3-HD-Laomedeia"
+  remote_tts_language: el-GR
+  remote_work_hours: "09:00-18:00"
+  ab_seed: 20261114
+  away_exclusion: false
+  log_level: info
+schema:
+  mode: list(observe|ab_test|autotune)
+  report_hour: match(^([01]\d|2[0-3]):[0-5]\d$)
+  notify_targets:
+    - match(^notify\.[a-z0-9_]+$)
+  llm_provider: list(brain_openai|anthropic|none)
+  llm_brain_url: str?
+  llm_model: str?
+  anthropic_api_key: password?
+  anthropic_model: str?
+  person_entity: match(^(person\.[a-z0-9_]+)?$)?
+  remote_ha_url: url?
+  remote_ha_token: password?
+  remote_tts_entity: match(^tts\.[a-z0-9_]+$)?
+  remote_tts_voice: str?
+  remote_media_player: match(^media_player\.[a-z0-9_]+$)?
+  remote_tts_language: str?
+  remote_work_hours: match(^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$)?
+  remote_conditions:
+    - str?
+  ab_seed: int?
+  away_exclusion: bool?
+  log_level: list(debug|info|warning)?
