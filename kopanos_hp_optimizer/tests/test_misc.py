@@ -46,7 +46,7 @@ def test_config_yaml_consistent():
     text = (ROOT / "config.yaml").read_text(encoding="utf-8")
     import yaml as y
     cfg = y.safe_load(text)
-    assert cfg["version"] == "0.1.0" and cfg["ingress_port"] == 8010 and cfg["homeassistant_api"] is True
+    assert cfg["version"] == "0.2.0" and cfg["ingress_port"] == 8010 and cfg["homeassistant_api"] is True
     assert cfg["services"] == ["mqtt:need"] and "ports" not in cfg
     assert cfg["watchdog"].startswith("tcp://")
     assert set(cfg["options"]) <= set(cfg["schema"])

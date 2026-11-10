@@ -12,7 +12,7 @@ CONTRACT = {
     "input_boolean.hp_ultra_low_hz_enabled", "input_number.hp_ultra_low_max_hz",
     "input_number.hp_ramp_multiplier", "input_number.hp_ramp_step_interval_min", "input_number.hp_quiet3_threshold",
     "input_boolean.hp_optimizer_autotune_enabled", "input_datetime.hp_optimizer_heartbeat",
-    "input_text.hp_optimizer_ab_today",
+    "input_text.hp_optimizer_ab_today", "input_select.hp_ultra_low_phase",
 }
 FORBIDDEN = [
     "select.panasonic_heat_pump_main_quiet_mode_level",
@@ -31,8 +31,8 @@ FORBIDDEN = [
 
 def test_allowlist_is_exactly_contract():
     assert set(ALLOWLIST) == CONTRACT
-    assert len(ALLOWLIST) == 8
-    assert ULH_PHASE not in ALLOWLIST
+    assert len(ALLOWLIST) == 9
+    assert ULH_PHASE in ALLOWLIST
     with pytest.raises(TypeError):
         ALLOWLIST["x"] = None  # immutable
 
@@ -41,7 +41,7 @@ def test_allowlist_is_exactly_contract():
 def test_forbidden_entities_rejected_and_never_posted(eid):
     s = FakeSession()
     ha = HAClient("http://x/api", "t", session=s)
-    for mode in ("observe", "ab_test", "autotune"):
+    for mode in ("observe", "campaign", "ab_test", "autotune"):
         with pytest.raises(WriteRejected):
             ha.set_helper(eid, 22, mode=mode, paused=False)
         with pytest.raises(WriteRejected):
@@ -67,8 +67,9 @@ def test_number_bad_types(val):
 
 
 def test_select_text_bool_datetime():
+    assert validate_helper_value(ULH_PHASE, "ramp")[2]["option"] == "ramp"
     with pytest.raises(WriteRejected):
-        validate_helper_value(ULH_PHASE, "ramp")
+        validate_helper_value(ULH_PHASE, "invalid_phase")
     assert validate_helper_value(AB_TODAY, "ON")[2]["value"] == "ON"
     with pytest.raises(WriteRejected):
         validate_helper_value(AB_TODAY, "on; drop")
@@ -93,7 +94,12 @@ def test_mode_policy():
             check_policy(eid, None, "observe", paused=False)
         with pytest.raises(WriteRejected):
             check_policy(eid, None, "observe", paused=False, restore=True)
-    # ab_test: no tunables
+    # campaign: writes phase, tunables, ulh, ab_today
+    check_policy(ULH_PHASE, "quiet", "campaign", paused=False)
+    check_policy(RAMP_MULT, 2.5, "campaign", paused=False)
+    check_policy(ULH_ENABLED, True, "campaign", paused=False)
+    check_policy(AB_TODAY, "ON", "campaign", paused=False)
+    # ab_test: no tunables or phase
     check_policy(ULH_ENABLED, True, "ab_test", paused=False)
     check_policy(AB_TODAY, "ON", "ab_test", paused=False)
     for eid in (RAMP_MULT, MAX_HZ, STEP_INTERVAL, QUIET3, ULH_PHASE):

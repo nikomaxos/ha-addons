@@ -180,3 +180,101 @@ def test_runner_tick_handles_errors(tmp_path):
     kinds = [e["kind"] for e in opt.store.events()]
     assert "job_error" in kinds
     assert opt.store.get("report_retry_after")
+
+
+def test_is_cycle_safe():
+    from optimizer.scheduler import is_cycle_safe
+    # Safe KPI
+    safe_kpi = {"error_h62_h75": False, "errors": [], "min_flow_running_room": 13.5,
+                "low_flow_minutes_room": 0, "eeprom_max_daily": 4, "eeprom_writes": 4,
+                "cold_minutes": 0, "comfort_within_03_pct": 85.0}
+    ok, reasons = is_cycle_safe(safe_kpi)
+    assert ok is True and reasons == []
+
+    # Unsafe due to H62
+    bad_kpi = dict(safe_kpi, error_h62_h75=True)
+    ok, reasons = is_cycle_safe(bad_kpi)
+    assert ok is False and any("H62" in r for r in reasons)
+
+    # Unsafe due to watchdog trip
+    ok, reasons = is_cycle_safe(safe_kpi, watchdog_trip="low_flow")
+    assert ok is False and any("watchdog" in r for r in reasons)
+
+    # Unsafe due to low flow
+    bad_flow = dict(safe_kpi, min_flow_running_room=10.2)
+    ok, reasons = is_cycle_safe(bad_flow)
+    assert ok is False and any("ροή" in r for r in reasons)
+
+    # Unsafe due to eeprom writes over budget
+    bad_ee = dict(safe_kpi, eeprom_max_daily=20)
+    ok, reasons = is_cycle_safe(bad_ee, eeprom_budget=16.0)
+    assert ok is False and any("eeprom" in r for r in reasons)
+
+
+def test_campaign_autonomous_progression_and_phase2_transition(tmp_path, real_history):
+    # Start on 10/11 at 10:31
+    clock_dt = datetime(2026, 11, 10, 10, 31, tzinfo=TZ)
+    opt, sess, clock = make(tmp_path, "campaign", real_history, now=clock_dt)
+    sess.states[ULH_PHASE] = "fixes"
+    sess.states[ULH_ENABLED] = "on"
+    sess.states[AB_TODAY] = "ON"
+    sess.states[RAMP_MULT] = "2.0"
+
+    # Day 1: close 2026-11-10 (baseline) -> launches fixes for 11/11
+    res1 = opt.close_cycle()
+    assert res1["cycle_date"] == "2026-11-10"
+    plan1 = opt.store.plan("2026-11-11")
+    assert plan1["applied"][ULH_PHASE] == "fixes"
+    assert sess.states[ULH_PHASE] == "fixes"
+
+    # Day 2: 11/11 at 10:31 -> closes fixes cycle, promotes to quiet for 12/11
+    clock.t += timedelta(days=1)
+    res2 = opt.close_cycle()
+    assert res2["cycle_date"] == "2026-11-11"
+    assert sess.states[ULH_PHASE] == "quiet"
+    plan2 = opt.store.plan("2026-11-12")
+    assert plan2["applied"][ULH_PHASE] == "quiet"
+
+    # Day 3: 12/11 at 10:31 -> closes quiet cycle, promotes to ramp for 13/11
+    clock.t += timedelta(days=1)
+    res3 = opt.close_cycle()
+    assert res3["cycle_date"] == "2026-11-12"
+    assert sess.states[ULH_PHASE] == "ramp"
+    plan3 = opt.store.plan("2026-11-13")
+    assert plan3["applied"][ULH_PHASE] == "ramp"
+
+    # Day 4: 13/11 at 10:31 -> closes ramp cycle, promotes to tuned for 14/11 and tunes RAMP_MULT
+    clock.t += timedelta(days=1)
+    res4 = opt.close_cycle()
+    assert res4["cycle_date"] == "2026-11-13"
+    assert sess.states[ULH_PHASE] == "tuned"
+    assert float(sess.states[RAMP_MULT]) in (1.75, 2.0, 2.5)
+    plan4 = opt.store.plan("2026-11-14")
+    assert plan4["applied"][ULH_PHASE] == "tuned"
+
+    # Day 5: 14/11 at 10:31 -> closes tuned cycle -> completes Phase I and transitions to Phase II!
+    clock.t += timedelta(days=1)
+    res5 = opt.close_cycle()
+    assert res5["cycle_date"] == "2026-11-14"
+    assert opt.store.get("campaign_completed") is True
+    plan5 = opt.store.plan("2026-11-15")
+    assert plan5["assignment"] in ("ON", "OFF")
+
+
+def test_campaign_unsafe_cycle_holds_or_rolls_back(tmp_path, real_history):
+    # Cycle in 'ramp' has a watchdog trip
+    clock_dt = datetime(2026, 11, 12, 10, 31, tzinfo=TZ)
+    opt, sess, clock = make(tmp_path, "campaign", real_history, now=clock_dt)
+    opt.store.save_plan("2026-11-12", "ON", None, "campaign_ramp", None,
+                       {ULH_ENABLED: True, AB_TODAY: "ON", ULH_PHASE: "ramp"})
+    sess.states[ULH_PHASE] = "ramp"
+    sess.states[ULH_ENABLED] = "off"
+    sess.states[AB_TODAY] = "ON"
+    sess.states[WATCHDOG_REASON] = "low_flow"
+
+    res = opt.close_cycle()
+    # Watchdog trip makes it unsafe -> roll back from ramp to quiet
+    assert sess.states[ULH_PHASE] == "quiet"
+    plan = opt.store.plan("2026-11-13")
+    assert plan["applied"][ULH_PHASE] == "quiet"
+    assert opt.store.get("campaign_completed") is not True

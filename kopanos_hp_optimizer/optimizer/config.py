@@ -9,7 +9,7 @@ from dataclasses import dataclass, field, fields
 from typing import Any, Dict, List
 from urllib.parse import urlparse
 
-from .const import OPTIONS_PATH
+from .const import MODES, OPTIONS_PATH
 
 log = logging.getLogger(__name__)
 HHMM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
@@ -80,7 +80,7 @@ def parse_options(raw: Dict[str, Any]) -> Options:
     for k, v in (raw or {}).items():
         if k in known and v is not None:
             setattr(o, k, v)
-    if o.mode not in ("observe", "ab_test", "autotune"):
+    if o.mode not in MODES:
         log.warning("invalid mode -> observe")
         o.mode = "observe"
     if not isinstance(o.report_hour, str) or not HHMM.match(o.report_hour):

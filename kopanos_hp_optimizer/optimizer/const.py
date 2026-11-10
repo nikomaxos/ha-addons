@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 TZ = ZoneInfo("Europe/Athens")
 ADDON_SLUG = "kopanos_hp_optimizer"
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 DB_PATH = "/data/optimizer.db"
 OPTIONS_PATH = "/data/options.json"
 INGRESS_PORT = 8010
@@ -60,16 +60,20 @@ _ALLOW = {
     AUTOTUNE_ENABLED: HelperSpec(AUTOTUNE_ENABLED, "bool", default=False, off_only=True),
     HEARTBEAT: HelperSpec(HEARTBEAT, "datetime"),
     AB_TODAY: HelperSpec(AB_TODAY, "text", default="NA", options=("ON", "OFF", "NA")),
+    ULH_PHASE: HelperSpec(ULH_PHASE, "select", default="fixes", options=PHASES),
 }
 ALLOWLIST: Mapping[str, HelperSpec] = MappingProxyType(_ALLOW)
-assert len(ALLOWLIST) == 8, "contract defines 8 writable helpers (ULH_PHASE is read-only)"
+assert len(ALLOWLIST) == 9, "contract defines 9 writable helpers"
 
 TUNABLE_PARAMS = (RAMP_MULT, MAX_HZ, STEP_INTERVAL, QUIET3)
 SAFE_DEFAULTS = MappingProxyType({MAX_HZ: 22.0, RAMP_MULT: 2.0, STEP_INTERVAL: 30.0, QUIET3: 6.0})
 
+MODES = ("observe", "campaign", "ab_test", "autotune")
+
 # Which helpers each mode may write (heartbeat always). observe = heartbeat ONLY.
 MODE_WRITABLE: Mapping[str, frozenset] = MappingProxyType({
     "observe": frozenset({HEARTBEAT}),
+    "campaign": frozenset({HEARTBEAT, ULH_ENABLED, ULH_PHASE, AB_TODAY, MAX_HZ, RAMP_MULT, STEP_INTERVAL, QUIET3, AUTOTUNE_ENABLED}),
     "ab_test": frozenset({HEARTBEAT, ULH_ENABLED, AB_TODAY, AUTOTUNE_ENABLED}),
     "autotune": frozenset({HEARTBEAT, ULH_ENABLED, AB_TODAY, AUTOTUNE_ENABLED, *TUNABLE_PARAMS}),
 })

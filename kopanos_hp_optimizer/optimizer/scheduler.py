@@ -10,8 +10,9 @@ from statistics import mean
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from . import tuner as T
-from .const import (AB_TODAY, ALLOWLIST, AUTOTUNE_ENABLED, E, HEARTBEAT, MAX_HZ, THERMAL_BATTERY_STATUS,
-                    TUNABLE_PARAMS, TZ, ULH_ENABLED, ULH_PHASE, WATCHDOG_AUTOMATION, WATCHDOG_REASON, zone_for)
+from .const import (AB_TODAY, ALLOWLIST, AUTOTUNE_ENABLED, E, HEARTBEAT, MAX_HZ, RAMP_MULT,
+                    THERMAL_BATTERY_STATUS, TUNABLE_PARAMS, TZ, ULH_ENABLED, ULH_PHASE,
+                    WATCHDOG_AUTOMATION, WATCHDOG_REASON, zone_for)
 from .experiment import day_exclusions, fit_effect, valid_pair_days, weekly_off_weekday
 from .ha_client import WriteRejected
 from .kpi import compute_kpis, needed_entities, to_float
@@ -93,6 +94,31 @@ def forecast_temp(forecast: List[dict], start_day: date, end_day: date) -> Optio
     if e and e.get("templow") is not None:
         vals.append(float(e["templow"]))
     return round(mean(vals), 2) if vals else None
+
+
+def is_cycle_safe(kpi: Dict[str, Any], watchdog_trip: Optional[str] = None,
+                  eeprom_budget: float = 16.0) -> Tuple[bool, List[str]]:
+    reasons: List[str] = []
+    if kpi.get("error_h62_h75") or any(("H62" in str(e) or "H75" in str(e)) for e in kpi.get("errors", [])):
+        reasons.append("σφάλμα H62/H75")
+    if watchdog_trip:
+        reasons.append(f"watchdog trip ({watchdog_trip})")
+    min_flow = kpi.get("min_flow_running_room")
+    if min_flow is not None and min_flow < 11.0:
+        reasons.append(f"ροή < 11 L/min ({min_flow:.1f} L/min)")
+    elif (kpi.get("low_flow_minutes_room") or 0) >= 5.0:
+        reasons.append(f"χαμηλή ροή ({kpi.get('low_flow_minutes_room')} min)")
+    ee_daily = kpi.get("eeprom_max_daily") or 0
+    ee_writes = kpi.get("eeprom_writes") or 0
+    if ee_daily > eeprom_budget or ee_writes > eeprom_budget:
+        reasons.append(f"υπέρβαση eeprom ({max(ee_daily, ee_writes)} > {eeprom_budget:.0f})")
+    cold_min = kpi.get("cold_minutes") or 0.0
+    comfort = kpi.get("comfort_within_03_pct")
+    if cold_min > 60.0:
+        reasons.append(f"υπερβολικό κρύο ({cold_min:.0f} min κάτω από στόχο -1.2°C)")
+    if comfort is not None and comfort < 50.0 and (kpi.get("running_hours") or 0.0) >= 2.0:
+        reasons.append(f"χαμηλή άνεση ({comfort:.1f}%)")
+    return (len(reasons) == 0, reasons)
 
 
 # ---------------------------------------------------------------- optimizer
@@ -381,27 +407,21 @@ class Optimizer:
             self.notifier.notify("report", rep["title"], rep["markdown"], tts=rep["tts"], defer_tts=True)
         return {"cycle_date": cdate, "kpi": kpi, "valid": valid, "exclusions": excl, "report": rep}
 
-    def _plan_next(self, cycle_start: datetime, kpi: Dict[str, Any]) -> Tuple[str, str]:
-        """Plan + apply helpers for the cycle [cycle_start, cycle_start+1d). Returns (action, next_text)."""
-        nd = (cycle_start + timedelta(days=1)).date()
-        key = nd.isoformat()
-        if self.paused:
-            self.store.save_plan(key, "PAUSED", None, None, None, None)
-            return "Καμία (παύση)", "παύση μέχρι συνέχιση"
-        if self.mode == "observe":
-            self.store.save_plan(key, "NA", None, None, None, None)
-            return "Καμία (observe)", "συνέχεια παρατήρησης"
-        if self.mode == "ab_test":
-            if self.store.get("ab_mode") != "ab_test" or not self.store.get("ab_start"):
-                self.store.put("ab_start", key)
-            self.store.put("ab_mode", "ab_test")
-            a, pair = ab_assignment(date.fromisoformat(self.store.get("ab_start")), self.opts.ab_seed, nd)
-            ok1 = self.apply(ULH_ENABLED, a == "ON", f"A/B {a}")
-            ok2 = self.apply(AB_TODAY, a, f"A/B {a}")
-            self.store.save_plan(key, a, pair, None, None, {ULH_ENABLED: a == "ON", AB_TODAY: a})
-            self._pub("ab_today", a)
-            return (f"A/B: σήμερα {a}" + ("" if ok1 and ok2 else " (κάποια εγγραφή απέτυχε)")), f"μέρα {a} (ζεύγος {pair.rsplit('-', 1)[1]})"
-        # autotune
+    def _is_cycle_safe(self, kpi: Dict[str, Any], watchdog_trip: Optional[str] = None) -> Tuple[bool, List[str]]:
+        return is_cycle_safe(kpi, watchdog_trip, self._eeprom_budget())
+
+    def _plan_ab_test(self, cycle_start: datetime, kpi: Dict[str, Any], key: str, nd: date) -> Tuple[str, str]:
+        if self.store.get("ab_mode") != "ab_test" or not self.store.get("ab_start"):
+            self.store.put("ab_start", key)
+        self.store.put("ab_mode", "ab_test")
+        a, pair = ab_assignment(date.fromisoformat(self.store.get("ab_start")), self.opts.ab_seed, nd)
+        ok1 = self.apply(ULH_ENABLED, a == "ON", f"A/B {a}")
+        ok2 = self.apply(AB_TODAY, a, f"A/B {a}")
+        self.store.save_plan(key, a, pair, None, None, {ULH_ENABLED: a == "ON", AB_TODAY: a})
+        self._pub("ab_today", a)
+        return (f"A/B: σήμερα {a}" + ("" if ok1 and ok2 else " (κάποια εγγραφή απέτυχε)")), f"μέρα {a} (ζεύγος {pair.rsplit('-', 1)[1]})"
+
+    def _plan_autotune(self, cycle_start: datetime, kpi: Dict[str, Any], key: str, nd: date) -> Tuple[str, str]:
         self.store.put("ab_mode", "autotune")
         if self._read(AUTOTUNE_ENABLED) is not True:
             self.store.save_plan(key, "NA", None, None, None, None)
@@ -437,6 +457,132 @@ class Optimizer:
         self.store.put("zone_planned", zone)
         p = ", ".join(f"{k.split('.', 1)[1]}={v}" for k, v in params.items())
         return (f"Autotune ζώνη {zone} ({arm}): {p}" + ("" if all(oks) else " (κάποια εγγραφή απέτυχε)")), f"ζώνη {zone}, {arm}"
+
+    def _plan_campaign(self, cycle_start: datetime, kpi: Dict[str, Any], key: str, nd: date) -> Tuple[str, str]:
+        # If Phase I is already marked completed, continue Phase II
+        if self.store.get("campaign_completed"):
+            if self._read(AUTOTUNE_ENABLED) is True:
+                act, nxt = self._plan_autotune(cycle_start, kpi, key, nd)
+                return f"Phase II (Autotune) · {act}", f"Phase II: {nxt}"
+            act, nxt = self._plan_ab_test(cycle_start, kpi, key, nd)
+            return f"Phase II (A/B test) · {act}", f"Phase II: {nxt}"
+
+        cdate = cycle_start.date().isoformat()
+        prev_plan = self.store.plan(cdate)
+        prev_applied = (prev_plan or {}).get("applied") or {}
+        evaluated_phase = (prev_applied.get(ULH_PHASE)
+                           or self.store.get("campaign_phase")
+                           or self._read(ULH_PHASE)
+                           or "fixes")
+        if evaluated_phase not in ("fixes", "quiet", "ramp", "tuned"):
+            evaluated_phase = "fixes"
+
+        watchdog_trip = self._detect_watchdog_trip(prev_plan)
+        is_safe, reasons = self._is_cycle_safe(kpi, watchdog_trip)
+
+        # Baseline / Day 0 launch: if closing baseline cycle before 11/11, launch/maintain fixes
+        if cdate <= "2026-11-10" and evaluated_phase == "fixes" and not self.store.has_cycle("2026-11-11"):
+            self.apply(ULH_PHASE, "fixes", "campaign launch fixes")
+            self.apply(ULH_ENABLED, True, "campaign launch fixes")
+            self.apply(AB_TODAY, "ON", "campaign launch fixes")
+            self.store.put("campaign_phase", "fixes")
+            applied = {ULH_ENABLED: True, AB_TODAY: "ON", ULH_PHASE: "fixes"}
+            self.store.save_plan(key, "ON", None, "campaign_fixes", None, applied)
+            return "Campaign: Έναρξη Φάσης I (fixes) · Παρακολούθηση 24ώρου μέχρι Τετάρτη 10:30", "φάση fixes"
+
+        if not is_safe:
+            self._event("campaign_safety", f"Cycle {cdate} unsafe: {', '.join(reasons)}")
+            severe = bool(watchdog_trip or kpi.get("error_h62_h75") or any(("H62" in str(e) or "H75" in str(e)) for e in kpi.get("errors", [])))
+            if severe:
+                rollback_map = {"tuned": "ramp", "ramp": "quiet", "quiet": "fixes", "fixes": "fixes"}
+                next_phase = rollback_map.get(evaluated_phase, "fixes")
+                act = f"⚠️ Campaign: Μη ασφαλής κύκλος {evaluated_phase} ({', '.join(reasons)}) → Rollback σε {next_phase}"
+            else:
+                next_phase = evaluated_phase
+                act = f"⚠️ Campaign: Μη ασφαλής κύκλος {evaluated_phase} ({', '.join(reasons)}) → Παραμονή στη φάση {next_phase} για επανέλεγχο"
+            self.apply(ULH_PHASE, next_phase, f"campaign hold/rollback {next_phase}")
+            self.apply(ULH_ENABLED, True, f"campaign hold/rollback {next_phase}")
+            self.apply(AB_TODAY, "ON", f"campaign hold/rollback {next_phase}")
+            self.store.put("campaign_phase", next_phase)
+            applied = {ULH_ENABLED: True, AB_TODAY: "ON", ULH_PHASE: next_phase}
+            self.store.save_plan(key, "ON", None, f"campaign_{next_phase}", None, applied)
+            return act, f"φάση {next_phase}"
+
+        # Safe progression
+        if evaluated_phase == "fixes":
+            next_phase = "quiet"
+            self.apply(ULH_PHASE, "quiet", "campaign safe progression fixes -> quiet")
+            self.apply(ULH_ENABLED, True, "campaign quiet")
+            self.apply(AB_TODAY, "ON", "campaign quiet")
+            self.store.put("campaign_phase", "quiet")
+            applied = {ULH_ENABLED: True, AB_TODAY: "ON", ULH_PHASE: "quiet"}
+            self.store.save_plan(key, "ON", None, "campaign_quiet", None, applied)
+            return "Campaign: Ασφαλής κύκλος fixes → Αυτόματη προώθηση σε quiet", "φάση quiet"
+
+        if evaluated_phase == "quiet":
+            next_phase = "ramp"
+            self.apply(ULH_PHASE, "ramp", "campaign safe progression quiet -> ramp")
+            self.apply(ULH_ENABLED, True, "campaign ramp")
+            self.apply(AB_TODAY, "ON", "campaign ramp")
+            self.store.put("campaign_phase", "ramp")
+            applied = {ULH_ENABLED: True, AB_TODAY: "ON", ULH_PHASE: "ramp"}
+            self.store.save_plan(key, "ON", None, "campaign_ramp", None, applied)
+            return "Campaign: Ασφαλής κύκλος quiet → Αυτόματη προώθηση σε ramp", "φάση ramp"
+
+        if evaluated_phase == "ramp":
+            next_phase = "tuned"
+            starts_room = kpi.get("starts_room") or kpi.get("starts") or 0
+            run_h = (kpi.get("running_hours") or 0.0) - ((kpi.get("tank_minutes") or 0.0) / 60.0)
+            starts_per_h = (starts_room / run_h) if run_h >= 1.0 else (starts_room / (kpi.get("hours") or 24.0))
+            comfort = kpi.get("comfort_within_03_pct")
+            cold_min = kpi.get("cold_minutes") or 0.0
+            dev = kpi.get("comfort_mean_dev")
+
+            if (starts_per_h > 0.8 or (kpi.get("max_starts_per_hour_room") or 0) > 0.8) and (comfort is None or comfort >= 70.0):
+                new_mult = 2.5
+                reason = f"starts/h={starts_per_h:.2f} > 0.8 & άνεση {comfort or 100}% -> αύξηση σε 2.5"
+            elif cold_min > 30.0 or (dev is not None and dev < -0.3):
+                new_mult = 1.75
+                reason = f"καθυστέρηση θέρμανσης (cold={cold_min:.0f}m, dev={dev}°C) -> μείωση σε 1.75"
+            else:
+                new_mult = 2.0
+                reason = "διατήρηση 2.0 (ισορροπημένο)"
+
+            self.apply(RAMP_MULT, new_mult, f"campaign tuned ramp_multiplier ({reason})")
+            self.apply(ULH_PHASE, "tuned", "campaign safe progression ramp -> tuned")
+            self.apply(ULH_ENABLED, True, "campaign tuned")
+            self.apply(AB_TODAY, "ON", "campaign tuned")
+            self.store.put("campaign_phase", "tuned")
+            applied = {ULH_ENABLED: True, AB_TODAY: "ON", ULH_PHASE: "tuned", RAMP_MULT: new_mult}
+            self.store.save_plan(key, "ON", None, "campaign_tuned", None, applied)
+            return f"Campaign: Ασφαλής κύκλος ramp → Προώθηση σε tuned · ramp_multiplier={new_mult} ({reason})", f"φάση tuned (ramp_multiplier={new_mult})"
+
+        # evaluated_phase == "tuned"
+        self.store.put("campaign_completed", True)
+        self.store.put("campaign_completed_date", cdate)
+        self._event("campaign", f"Campaign Phase I completed on {cdate}. Transitioning to Phase II.")
+        if self._read(AUTOTUNE_ENABLED) is True:
+            act, nxt = self._plan_autotune(cycle_start, kpi, key, nd)
+            return f"🎉 Ολοκλήρωση Phase I (tuned OK) → Αυτόματη μετάβαση σε Phase II (Autotune) · {act}", f"Phase II: {nxt}"
+        act, nxt = self._plan_ab_test(cycle_start, kpi, key, nd)
+        return f"🎉 Ολοκλήρωση Phase I (tuned OK) → Αυτόματη μετάβαση σε Phase II (A/B test) · {act}", f"Phase II: {nxt}"
+
+    def _plan_next(self, cycle_start: datetime, kpi: Dict[str, Any]) -> Tuple[str, str]:
+        """Plan + apply helpers for the cycle [cycle_start, cycle_start+1d). Returns (action, next_text)."""
+        nd = (cycle_start + timedelta(days=1)).date()
+        key = nd.isoformat()
+        if self.paused:
+            self.store.save_plan(key, "PAUSED", None, None, None, None)
+            return "Καμία (παύση)", "παύση μέχρι συνέχιση"
+        if self.mode == "observe":
+            self.store.save_plan(key, "NA", None, None, None, None)
+            return "Καμία (observe)", "συνέχεια παρατήρησης"
+        if self.mode == "campaign":
+            return self._plan_campaign(cycle_start, kpi, key, nd)
+        if self.mode == "ab_test":
+            return self._plan_ab_test(cycle_start, kpi, key, nd)
+        # autotune
+        return self._plan_autotune(cycle_start, kpi, key, nd)
 
     # -- status ---------------------------------------------------------------------------
     def publish_status(self) -> Dict[str, Any]:
@@ -495,6 +641,10 @@ class Runner(threading.Thread):
 
     def tick(self) -> List[str]:
         now = self.opt.now()
+        if self.opt.mode == "campaign" and not self.opt.paused and not self.opt.store.get("campaign_completed"):
+            if self.opt._read(ULH_PHASE) in (None, "off"):
+                self.opt.apply(ULH_PHASE, "fixes", "campaign tick init fixes")
+                self.opt.store.put("campaign_phase", "fixes")
         jobs = due_jobs(now, self._dt("last_heartbeat_attempt"), self._dt("last_health"),
                         self.opt.store.get("last_closed"), self.opt.opts.report_hour)
         for job in jobs:

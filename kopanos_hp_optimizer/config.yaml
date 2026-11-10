@@ -1,6 +1,6 @@
 name: "Kopanos HP Optimizer"
 description: "Winter-long heat pump optimizer: KPIs, randomized A/B, per-zone autotune of HA helpers (never writes to the pump)"
-version: "0.1.0"
+version: "0.2.0"
 slug: "kopanos_hp_optimizer"
 url: "https://github.com/ha-addons/kopanos_hp_optimizer"
 arch:
@@ -36,7 +36,7 @@ options:
   away_exclusion: false
   log_level: info
 schema:
-  mode: list(observe|ab_test|autotune)
+  mode: list(observe|campaign|ab_test|autotune)
   report_hour: match(^([01]\d|2[0-3]):[0-5]\d$)
   notify_targets:
     - match(^notify\.[a-z0-9_]+$)
