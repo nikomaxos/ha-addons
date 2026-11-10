@@ -1,6 +1,6 @@
 name: "Kopanos HP Optimizer"
 description: "Winter-long heat pump optimizer: KPIs, randomized A/B, per-zone autotune of HA helpers (never writes to the pump)"
-version: "0.2.0"
+version: "0.2.1"
 slug: "kopanos_hp_optimizer"
 url: "https://github.com/ha-addons/kopanos_hp_optimizer"
 arch:

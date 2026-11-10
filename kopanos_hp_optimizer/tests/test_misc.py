@@ -7,7 +7,7 @@ import pytest
 import yaml  # noqa: F401  (pyyaml optional)
 
 from optimizer.config import Options, parse_options
-from optimizer.const import TZ
+from optimizer.const import TZ, VERSION
 from optimizer.mqtt_entities import ENTITIES, discovery_payloads
 from optimizer.notifier import Notifier, RemoteTTS
 from optimizer.reporter import Reporter, WordingProvider, validate_wording
@@ -46,7 +46,7 @@ def test_config_yaml_consistent():
     text = (ROOT / "config.yaml").read_text(encoding="utf-8")
     import yaml as y
     cfg = y.safe_load(text)
-    assert cfg["version"] == "0.2.0" and cfg["ingress_port"] == 8010 and cfg["homeassistant_api"] is True
+    assert cfg["version"] == VERSION and cfg["ingress_port"] == 8010 and cfg["homeassistant_api"] is True
     assert cfg["services"] == ["mqtt:need"] and "ports" not in cfg
     assert cfg["watchdog"].startswith("tcp://")
     assert set(cfg["options"]) <= set(cfg["schema"])

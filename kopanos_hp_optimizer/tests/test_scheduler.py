@@ -4,7 +4,7 @@ import pytest
 
 from conftest import FakeSession
 from optimizer.config import Options
-from optimizer.const import (AB_TODAY, AUTOTUNE_ENABLED, E, HEARTBEAT, MAX_HZ, QUIET3, RAMP_MULT, STEP_INTERVAL,
+from optimizer.const import (AB_TODAY, AUTOTUNE_ENABLED, E, HEARTBEAT, MAX_HZ, PUMP_DUTY, QUIET3, RAMP_MULT, STEP_INTERVAL,
                              TZ, ULH_ENABLED, ULH_PHASE, WATCHDOG_REASON)
 from optimizer.ha_client import HAClient
 from optimizer.notifier import Notifier
@@ -13,7 +13,7 @@ from optimizer.scheduler import Optimizer, Runner, due_jobs, forecast_temp, last
 from optimizer.storage import Store
 
 HELPER_STATES = {ULH_ENABLED: "off", ULH_PHASE: "off", MAX_HZ: "22.0", RAMP_MULT: "2.0", STEP_INTERVAL: "30.0",
-                 QUIET3: "6.0", AUTOTUNE_ENABLED: "off", HEARTBEAT: "2026-11-10 09:00:00", AB_TODAY: "NA",
+                 QUIET3: "6.0", PUMP_DUTY: "150.0", AUTOTUNE_ENABLED: "off", HEARTBEAT: "2026-11-10 09:00:00", AB_TODAY: "NA",
                  E["freq"]: "20", E["heat_power"]: "800", E["t_out"]: "10"}
 
 
@@ -159,8 +159,8 @@ def test_rollback_restores_first_values_and_pauses(tmp_path):
     assert opt.apply(ULH_ENABLED, True, "t3")
     assert not opt.apply("input_number.hp_target_room_temp", 30, "evil")
     r = opt.rollback()
-    assert r["restored"] == {RAMP_MULT: 2.0, ULH_ENABLED: False}
-    assert sess.states[RAMP_MULT] == "2.0" and sess.states[ULH_ENABLED] == "off"
+    assert r["restored"] == {RAMP_MULT: 2.0, ULH_ENABLED: False, PUMP_DUTY: 150.0}
+    assert sess.states[RAMP_MULT] == "2.0" and sess.states[ULH_ENABLED] == "off" and float(sess.states[PUMP_DUTY]) == 150.0
     assert opt.paused
     # paused: further non-restore writes rejected
     assert not opt.apply(RAMP_MULT, 2.5, "after pause")
@@ -234,6 +234,8 @@ def test_campaign_autonomous_progression_and_phase2_transition(tmp_path, real_hi
     assert sess.states[ULH_PHASE] == "quiet"
     plan2 = opt.store.plan("2026-11-12")
     assert plan2["applied"][ULH_PHASE] == "quiet"
+    assert plan2["applied"][PUMP_DUTY] == 112.0
+    assert float(sess.states[PUMP_DUTY]) == 112.0
 
     # Day 3: 12/11 at 10:31 -> closes quiet cycle, promotes to ramp for 13/11
     clock.t += timedelta(days=1)
@@ -242,6 +244,8 @@ def test_campaign_autonomous_progression_and_phase2_transition(tmp_path, real_hi
     assert sess.states[ULH_PHASE] == "ramp"
     plan3 = opt.store.plan("2026-11-13")
     assert plan3["applied"][ULH_PHASE] == "ramp"
+    assert plan3["applied"][PUMP_DUTY] == 112.0
+    assert float(sess.states[PUMP_DUTY]) == 112.0
 
     # Day 4: 13/11 at 10:31 -> closes ramp cycle, promotes to tuned for 14/11 and tunes RAMP_MULT
     clock.t += timedelta(days=1)
@@ -251,6 +255,8 @@ def test_campaign_autonomous_progression_and_phase2_transition(tmp_path, real_hi
     assert float(sess.states[RAMP_MULT]) in (1.75, 2.0, 2.5)
     plan4 = opt.store.plan("2026-11-14")
     assert plan4["applied"][ULH_PHASE] == "tuned"
+    assert plan4["applied"][PUMP_DUTY] == 112.0
+    assert float(sess.states[PUMP_DUTY]) == 112.0
 
     # Day 5: 14/11 at 10:31 -> closes tuned cycle -> completes Phase I and transitions to Phase II!
     clock.t += timedelta(days=1)

@@ -4,13 +4,14 @@ from datetime import datetime
 import pytest
 
 from conftest import FakeSession
-from optimizer.const import (AB_TODAY, ALLOWLIST, AUTOTUNE_ENABLED, HEARTBEAT, MAX_HZ, QUIET3, RAMP_MULT,
+from optimizer.const import (AB_TODAY, ALLOWLIST, AUTOTUNE_ENABLED, HEARTBEAT, MAX_HZ, PUMP_DUTY, QUIET3, RAMP_MULT,
                              STEP_INTERVAL, TZ, ULH_ENABLED, ULH_PHASE)
 from optimizer.ha_client import HAClient, WriteRejected, check_policy, validate_helper_value
 
 CONTRACT = {
     "input_boolean.hp_ultra_low_hz_enabled", "input_number.hp_ultra_low_max_hz",
     "input_number.hp_ramp_multiplier", "input_number.hp_ramp_step_interval_min", "input_number.hp_quiet3_threshold",
+    "input_number.hp_space_heat_pump_duty",
     "input_boolean.hp_optimizer_autotune_enabled", "input_datetime.hp_optimizer_heartbeat",
     "input_text.hp_optimizer_ab_today", "input_select.hp_ultra_low_phase",
 }
@@ -31,8 +32,9 @@ FORBIDDEN = [
 
 def test_allowlist_is_exactly_contract():
     assert set(ALLOWLIST) == CONTRACT
-    assert len(ALLOWLIST) == 9
+    assert len(ALLOWLIST) == 10
     assert ULH_PHASE in ALLOWLIST
+    assert PUMP_DUTY in ALLOWLIST
     with pytest.raises(TypeError):
         ALLOWLIST["x"] = None  # immutable
 
@@ -54,6 +56,7 @@ def test_forbidden_entities_rejected_and_never_posted(eid):
     (RAMP_MULT, 2.1, 2.0), (RAMP_MULT, 2.2, 2.25), (RAMP_MULT, 9, 3.0), (RAMP_MULT, -1, 1.0),
     (STEP_INTERVAL, 47, 45.0), (STEP_INTERVAL, 5, 30.0), (STEP_INTERVAL, 600, 60.0),
     (QUIET3, 7.9, 7.2), (QUIET3, 6.04, 6.0), (QUIET3, 5.0, 5.5), (QUIET3, 6.4, 6.4),
+    (PUMP_DUTY, 160, 150.0), (PUMP_DUTY, 90, 95.0), (PUMP_DUTY, 112.4, 112.0), (PUMP_DUTY, 112, 112.0),
 ])
 def test_number_clamp_and_snap(eid, val, exp):
     _, srv, data, norm = validate_helper_value(eid, val)

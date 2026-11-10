@@ -3,7 +3,7 @@ import copy
 import pytest
 
 from optimizer import tuner as T
-from optimizer.const import MAX_HZ, QUIET3, RAMP_MULT, SAFE_DEFAULTS, STEP_INTERVAL, zone_for
+from optimizer.const import MAX_HZ, PUMP_DUTY, QUIET3, RAMP_MULT, SAFE_DEFAULTS, STEP_INTERVAL, zone_for
 
 GOOD = {"comfort_within_03_pct": 95.0, "max_starts_per_hour_room": 2, "eeprom_max_daily": 8,
         "error_h62_h75": False, "defrosts_tout_gt7": 0}
@@ -146,7 +146,7 @@ def test_full_ladder_terminates():
     else:
         raise AssertionError("tuner never finished")
     z = st["zones"]["7–12"]
-    assert z["param_idx"] == 4 and z["incumbent"] == dict(SAFE_DEFAULTS)
+    assert z["param_idx"] == 5 and z["incumbent"] == dict(SAFE_DEFAULTS)
     for k, v in z["incumbent"].items():
         assert v in T.LADDERS[k]
 
@@ -170,6 +170,7 @@ def test_ladders_within_contract_limits():
     assert T.LADDERS[STEP_INTERVAL][0] == 30.0 and T.LADDERS[STEP_INTERVAL][-1] == 60.0
     assert 20.0 not in T.LADDERS[STEP_INTERVAL] and 25.0 not in T.LADDERS[STEP_INTERVAL]
     assert T.LADDERS[QUIET3][0] == 5.5 and T.LADDERS[QUIET3][-1] == 7.2
+    assert T.LADDERS[PUMP_DUTY][0] == 105.0 and T.LADDERS[PUMP_DUTY][-1] == 150.0
     # snap doesn't unnecessarily alter valid values between rungs
     assert T._neighbor(MAX_HZ, 21.4, 1) == 22.0
     assert T._neighbor(MAX_HZ, 21.4, -1) == 21.0

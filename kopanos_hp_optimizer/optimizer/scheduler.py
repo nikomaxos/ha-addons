@@ -10,7 +10,7 @@ from statistics import mean
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from . import tuner as T
-from .const import (AB_TODAY, ALLOWLIST, AUTOTUNE_ENABLED, E, HEARTBEAT, MAX_HZ, RAMP_MULT,
+from .const import (AB_TODAY, ALLOWLIST, AUTOTUNE_ENABLED, E, HEARTBEAT, MAX_HZ, PUMP_DUTY, RAMP_MULT,
                     THERMAL_BATTERY_STATUS, TUNABLE_PARAMS, TZ, ULH_ENABLED, ULH_PHASE,
                     WATCHDOG_AUTOMATION, WATCHDOG_REASON, zone_for)
 from .experiment import day_exclusions, fit_effect, valid_pair_days, weekly_off_weekday
@@ -256,6 +256,9 @@ class Optimizer:
                     restored[eid] = old
                 else:
                     skipped[eid] = "rejected"
+            if PUMP_DUTY not in restored:
+                if self.apply(PUMP_DUTY, 150.0, "rollback restore baseline 150", restore=True):
+                    restored[PUMP_DUTY] = 150.0
             st = self.tuner_state()
             T.rollback_trials(st, self.now().date().isoformat())
             self.store.put("tuner_state", st)
@@ -509,6 +512,9 @@ class Optimizer:
             self.apply(AB_TODAY, "ON", f"campaign hold/rollback {next_phase}")
             self.store.put("campaign_phase", next_phase)
             applied = {ULH_ENABLED: True, AB_TODAY: "ON", ULH_PHASE: next_phase}
+            if next_phase == "off":
+                self.apply(PUMP_DUTY, 150.0, "rollback off pump duty restore")
+                applied[PUMP_DUTY] = 150.0
             self.store.save_plan(key, "ON", None, f"campaign_{next_phase}", None, applied)
             return act, f"φάση {next_phase}"
 
@@ -518,8 +524,12 @@ class Optimizer:
             self.apply(ULH_PHASE, "quiet", "campaign safe progression fixes -> quiet")
             self.apply(ULH_ENABLED, True, "campaign quiet")
             self.apply(AB_TODAY, "ON", "campaign quiet")
+            cur_duty = self._read(PUMP_DUTY)
+            duty_applied = 112.0 if (cur_duty is None or cur_duty >= 149.0) else cur_duty
+            if cur_duty is None or cur_duty >= 149.0:
+                self.apply(PUMP_DUTY, 112.0, "campaign quiet pump duty eco")
             self.store.put("campaign_phase", "quiet")
-            applied = {ULH_ENABLED: True, AB_TODAY: "ON", ULH_PHASE: "quiet"}
+            applied = {ULH_ENABLED: True, AB_TODAY: "ON", ULH_PHASE: "quiet", PUMP_DUTY: duty_applied}
             self.store.save_plan(key, "ON", None, "campaign_quiet", None, applied)
             return "Campaign: Ασφαλής κύκλος fixes → Αυτόματη προώθηση σε quiet", "φάση quiet"
 
@@ -528,8 +538,12 @@ class Optimizer:
             self.apply(ULH_PHASE, "ramp", "campaign safe progression quiet -> ramp")
             self.apply(ULH_ENABLED, True, "campaign ramp")
             self.apply(AB_TODAY, "ON", "campaign ramp")
+            cur_duty = self._read(PUMP_DUTY)
+            duty_applied = 112.0 if (cur_duty is None or cur_duty >= 149.0) else cur_duty
+            if cur_duty is None or cur_duty >= 149.0:
+                self.apply(PUMP_DUTY, 112.0, "campaign ramp pump duty eco")
             self.store.put("campaign_phase", "ramp")
-            applied = {ULH_ENABLED: True, AB_TODAY: "ON", ULH_PHASE: "ramp"}
+            applied = {ULH_ENABLED: True, AB_TODAY: "ON", ULH_PHASE: "ramp", PUMP_DUTY: duty_applied}
             self.store.save_plan(key, "ON", None, "campaign_ramp", None, applied)
             return "Campaign: Ασφαλής κύκλος quiet → Αυτόματη προώθηση σε ramp", "φάση ramp"
 
@@ -552,12 +566,16 @@ class Optimizer:
                 new_mult = 2.0
                 reason = "διατήρηση 2.0 (ισορροπημένο)"
 
+            cur_duty = self._read(PUMP_DUTY)
+            duty_applied = 112.0 if (cur_duty is None or cur_duty >= 149.0) else cur_duty
+            if cur_duty is None or cur_duty >= 149.0:
+                self.apply(PUMP_DUTY, 112.0, "campaign tuned pump duty eco")
             self.apply(RAMP_MULT, new_mult, f"campaign tuned ramp_multiplier ({reason})")
             self.apply(ULH_PHASE, "tuned", "campaign safe progression ramp -> tuned")
             self.apply(ULH_ENABLED, True, "campaign tuned")
             self.apply(AB_TODAY, "ON", "campaign tuned")
             self.store.put("campaign_phase", "tuned")
-            applied = {ULH_ENABLED: True, AB_TODAY: "ON", ULH_PHASE: "tuned", RAMP_MULT: new_mult}
+            applied = {ULH_ENABLED: True, AB_TODAY: "ON", ULH_PHASE: "tuned", RAMP_MULT: new_mult, PUMP_DUTY: duty_applied}
             self.store.save_plan(key, "ON", None, "campaign_tuned", None, applied)
             return f"Campaign: Ασφαλής κύκλος ramp → Προώθηση σε tuned · ramp_multiplier={new_mult} ({reason})", f"φάση tuned (ramp_multiplier={new_mult})"
 

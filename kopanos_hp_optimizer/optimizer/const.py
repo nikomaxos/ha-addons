@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 TZ = ZoneInfo("Europe/Athens")
 ADDON_SLUG = "kopanos_hp_optimizer"
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 DB_PATH = "/data/optimizer.db"
 OPTIONS_PATH = "/data/options.json"
 INGRESS_PORT = 8010
@@ -42,6 +42,7 @@ MAX_HZ = "input_number.hp_ultra_low_max_hz"
 RAMP_MULT = "input_number.hp_ramp_multiplier"
 STEP_INTERVAL = "input_number.hp_ramp_step_interval_min"
 QUIET3 = "input_number.hp_quiet3_threshold"
+PUMP_DUTY = "input_number.hp_space_heat_pump_duty"
 AUTOTUNE_ENABLED = "input_boolean.hp_optimizer_autotune_enabled"
 AB_TODAY = "input_text.hp_optimizer_ab_today"
 
@@ -57,23 +58,24 @@ _ALLOW = {
     RAMP_MULT: HelperSpec(RAMP_MULT, "number", default=2.0, minimum=1.0, maximum=3.0, step=0.25),
     STEP_INTERVAL: HelperSpec(STEP_INTERVAL, "number", default=30.0, minimum=30.0, maximum=60.0, step=5.0),
     QUIET3: HelperSpec(QUIET3, "number", default=6.0, minimum=5.5, maximum=7.2, step=0.1),
+    PUMP_DUTY: HelperSpec(PUMP_DUTY, "number", default=150.0, minimum=95.0, maximum=150.0, step=1.0),
     AUTOTUNE_ENABLED: HelperSpec(AUTOTUNE_ENABLED, "bool", default=False, off_only=True),
     HEARTBEAT: HelperSpec(HEARTBEAT, "datetime"),
     AB_TODAY: HelperSpec(AB_TODAY, "text", default="NA", options=("ON", "OFF", "NA")),
     ULH_PHASE: HelperSpec(ULH_PHASE, "select", default="fixes", options=PHASES),
 }
 ALLOWLIST: Mapping[str, HelperSpec] = MappingProxyType(_ALLOW)
-assert len(ALLOWLIST) == 9, "contract defines 9 writable helpers"
+assert len(ALLOWLIST) == 10, "contract defines 10 writable helpers"
 
-TUNABLE_PARAMS = (RAMP_MULT, MAX_HZ, STEP_INTERVAL, QUIET3)
-SAFE_DEFAULTS = MappingProxyType({MAX_HZ: 22.0, RAMP_MULT: 2.0, STEP_INTERVAL: 30.0, QUIET3: 6.0})
+TUNABLE_PARAMS = (RAMP_MULT, MAX_HZ, STEP_INTERVAL, QUIET3, PUMP_DUTY)
+SAFE_DEFAULTS = MappingProxyType({MAX_HZ: 22.0, RAMP_MULT: 2.0, STEP_INTERVAL: 30.0, QUIET3: 6.0, PUMP_DUTY: 150.0})
 
 MODES = ("observe", "campaign", "ab_test", "autotune")
 
 # Which helpers each mode may write (heartbeat always). observe = heartbeat ONLY.
 MODE_WRITABLE: Mapping[str, frozenset] = MappingProxyType({
     "observe": frozenset({HEARTBEAT}),
-    "campaign": frozenset({HEARTBEAT, ULH_ENABLED, ULH_PHASE, AB_TODAY, MAX_HZ, RAMP_MULT, STEP_INTERVAL, QUIET3, AUTOTUNE_ENABLED}),
+    "campaign": frozenset({HEARTBEAT, ULH_ENABLED, ULH_PHASE, AB_TODAY, MAX_HZ, RAMP_MULT, STEP_INTERVAL, QUIET3, PUMP_DUTY, AUTOTUNE_ENABLED}),
     "ab_test": frozenset({HEARTBEAT, ULH_ENABLED, AB_TODAY, AUTOTUNE_ENABLED}),
     "autotune": frozenset({HEARTBEAT, ULH_ENABLED, AB_TODAY, AUTOTUNE_ENABLED, *TUNABLE_PARAMS}),
 })

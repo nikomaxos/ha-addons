@@ -22,13 +22,14 @@ from __future__ import annotations
 from statistics import mean
 from typing import Any, Dict, List, Optional, Tuple
 
-from .const import MAX_HZ, QUIET3, RAMP_MULT, SAFE_DEFAULTS, STEP_INTERVAL, TUNABLE_PARAMS, ZONES
+from .const import MAX_HZ, PUMP_DUTY, QUIET3, RAMP_MULT, SAFE_DEFAULTS, STEP_INTERVAL, TUNABLE_PARAMS, ZONES
 
 LADDERS: Dict[str, Tuple[float, ...]] = {
     RAMP_MULT: (1.0, 1.5, 2.0, 2.5, 3.0),
     MAX_HZ: (19.0, 20.0, 21.0, 22.0, 23.0, 24.0),
     STEP_INTERVAL: (30.0, 35.0, 40.0, 45.0, 50.0, 55.0, 60.0),
     QUIET3: (5.5, 6.0, 6.4, 6.8, 7.2),
+    PUMP_DUTY: (105.0, 112.0, 125.0, 150.0),
 }
 MIN_DAYS = 3
 MIN_IMPROVEMENT = 0.01  # 1 % lower kWh/HDD

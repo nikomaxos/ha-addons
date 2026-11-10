@@ -1,7 +1,7 @@
 """Home Assistant REST client with a STRICT write allowlist.
 
 Write path rules (defence in depth):
-  1. Only entities in const.ALLOWLIST (9 helpers) can be written — anything else raises WriteRejected.
+  1. Only entities in const.ALLOWLIST (10 helpers) can be written — anything else raises WriteRejected.
   2. The service is derived internally from the helper kind; callers can NOT choose a service.
   3. Values are validated and clamped / snapped to the contract ranges.
   4. Mode gating: observe -> heartbeat only; ab_test / autotune -> const.MODE_WRITABLE.
