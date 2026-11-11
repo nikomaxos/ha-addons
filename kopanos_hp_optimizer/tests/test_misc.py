@@ -190,12 +190,22 @@ def test_remote_tts_conditions():
 
 def test_remote_tts_bluetooth_speaker_a2dp():
     states = dict(REMOTE_OK)
+    states["sensor.lva_bluetooth_speaker_signal"] = {"state": "-5", "attributes": {"connected": True}}
     r, s = remote(states, media_player="media_player.lva_bluetooth_speaker_media_player")
     r.speak("δοκιμή")
     assert len(s.posts) == 2
     assert s.posts[0][0].endswith("/api/services/shell_command/lva_bt_set_profile_a2dp")
     assert s.posts[0][1] == {}
     assert s.posts[1][0].endswith("/api/services/tts/speak")
+
+
+def test_remote_tts_bluetooth_speaker_disconnected():
+    states = dict(REMOTE_OK)
+    states["sensor.lva_bluetooth_speaker_signal"] = {"state": "-99", "attributes": {"connected": False}}
+    r, s = remote(states, media_player="media_player.lva_bluetooth_speaker_media_player")
+    with pytest.raises(RuntimeError, match="Bluetooth speaker is disconnected/off"):
+        r.speak("δοκιμή")
+    assert any("/api/services/script/restart_lva_bt_service" in p[0] for p in s.posts)
 
 
 def test_brain_url_normalization():

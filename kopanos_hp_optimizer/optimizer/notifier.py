@@ -127,6 +127,19 @@ class RemoteTTS:
 
     def speak(self, message: str) -> None:
         if "bluetooth_speaker" in (self.media_player or ""):
+            sig = self._remote_state("sensor.lva_bluetooth_speaker_signal")
+            if sig is not None and not sig.get("attributes", {}).get("connected", False):
+                try:
+                    self.s.post(f"{self.url}/api/services/script/restart_lva_bt_service",
+                                headers=self._h(), json={}, timeout=5.0)
+                    _time.sleep(2.0)
+                except Exception:  # noqa: BLE001
+                    pass
+                sig = self._remote_state("sensor.lva_bluetooth_speaker_signal")
+                if sig is not None and not sig.get("attributes", {}).get("connected", False):
+                    log.warning("Bluetooth speaker is disconnected/off (connected=False)")
+                    raise RuntimeError("Bluetooth speaker is disconnected/off (connected=False)")
+
             try:
                 self.s.post(f"{self.url}/api/services/shell_command/lva_bt_set_profile_a2dp",
                             headers=self._h(), json={}, timeout=3.0)
