@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time as _time
 from datetime import datetime, time, timedelta
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -125,6 +126,13 @@ class RemoteTTS:
         return (not failed), failed
 
     def speak(self, message: str) -> None:
+        if "bluetooth_speaker" in (self.media_player or ""):
+            try:
+                self.s.post(f"{self.url}/api/services/shell_command/lva_bt_set_profile_a2dp",
+                            headers=self._h(), json={}, timeout=3.0)
+                _time.sleep(0.3)
+            except Exception:  # noqa: BLE001
+                pass
         payload: Dict[str, Any] = {"entity_id": self.tts_entity, "media_player_entity_id": self.media_player,
                                    "message": message[:600], "language": self.language, "cache": False}
         if self.voice:

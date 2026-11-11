@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 TZ = ZoneInfo("Europe/Athens")
 ADDON_SLUG = "kopanos_hp_optimizer"
-VERSION = "0.2.1"
+VERSION = "0.2.2"
 DB_PATH = "/data/optimizer.db"
 OPTIONS_PATH = "/data/options.json"
 INGRESS_PORT = 8010

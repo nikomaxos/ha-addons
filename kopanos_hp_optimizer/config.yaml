@@ -1,6 +1,6 @@
 name: "Kopanos HP Optimizer"
 description: "Winter-long heat pump optimizer: KPIs, randomized A/B, per-zone autotune of HA helpers (never writes to the pump)"
-version: "0.2.1"
+version: "0.2.2"
 slug: "kopanos_hp_optimizer"
 url: "https://github.com/ha-addons/kopanos_hp_optimizer"
 arch:
@@ -28,8 +28,8 @@ options:
   llm_model: "gemini-3.8-flash"
   anthropic_model: "claude-sonnet-4-6"
   person_entity: ""
-  remote_tts_entity: tts.google_cloud
-  remote_tts_voice: "el-GR-Chirp3-HD-Laomedeia"
+  remote_tts_entity: tts.google_ai_tts
+  remote_tts_voice: "laomedeia"
   remote_tts_language: el-GR
   remote_work_hours: "09:00-18:00"
   ab_seed: 20261114

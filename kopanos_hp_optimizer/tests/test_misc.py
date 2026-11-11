@@ -6,11 +6,11 @@ from pathlib import Path
 import pytest
 import yaml  # noqa: F401  (pyyaml optional)
 
-from optimizer.config import Options, parse_options
+from optimizer.config import Options, parse_options, _normalize_brain_url, VOICE_RE
 from optimizer.const import TZ, VERSION
 from optimizer.mqtt_entities import ENTITIES, discovery_payloads
 from optimizer.notifier import Notifier, RemoteTTS
-from optimizer.reporter import Reporter, WordingProvider, validate_wording
+from optimizer.reporter import Reporter, WordingProvider, BrainOpenAIProvider, validate_wording, greek_fallback
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -162,11 +162,11 @@ CONDS = ["binary_sensor.workday_sensor=on", "input_boolean.dnd_mode=off", "perso
          "binary_sensor.office_motion_sensor_occupancy=on~30"]
 
 
-def remote(states):
+def remote(states, media_player="media_player.speaker"):
     s = FakeRemoteSession(states)
-    return RemoteTTS("http://100.64.0.1:8123", "TOKEN", "tts.google_cloud",
-                     "media_player.speaker", CONDS, "09:00-18:00",
-                     voice="el-GR-Chirp3-HD-Laomedeia", session=s), s
+    return RemoteTTS("http://100.64.0.1:8123", "TOKEN", "tts.google_ai_tts",
+                     media_player, CONDS, "09:00-18:00",
+                     voice="laomedeia", session=s), s
 
 
 def test_remote_tts_conditions():
@@ -176,7 +176,7 @@ def test_remote_tts_conditions():
     r.speak("γεια")
     url, body = s.posts[-1]
     assert url.endswith("/api/services/tts/speak")
-    assert body["entity_id"] == "tts.google_cloud" and body["options"] == {"voice": "el-GR-Chirp3-HD-Laomedeia"}
+    assert body["entity_id"] == "tts.google_ai_tts" and body["options"] == {"voice": "laomedeia"}
     ok, failed = r.check_conditions(datetime(2026, 11, 10, 11, 40, tzinfo=TZ))  # motion 50' ago
     assert not ok and failed == ["binary_sensor.office_motion_sensor_occupancy=on~30"]
     ok, failed = r.check_conditions(datetime(2026, 11, 10, 19, 0, tzinfo=TZ))
@@ -186,6 +186,67 @@ def test_remote_tts_conditions():
     r3, _ = remote({k: v for k, v in REMOTE_OK.items() if k != "person.user"})
     assert r3.check_conditions(now)[1] == ["person.user=home (unavailable)"]
     assert "TOKEN" not in repr(r)
+
+
+def test_remote_tts_bluetooth_speaker_a2dp():
+    states = dict(REMOTE_OK)
+    r, s = remote(states, media_player="media_player.lva_bluetooth_speaker_media_player")
+    r.speak("δοκιμή")
+    assert len(s.posts) == 2
+    assert s.posts[0][0].endswith("/api/services/shell_command/lva_bt_set_profile_a2dp")
+    assert s.posts[0][1] == {}
+    assert s.posts[1][0].endswith("/api/services/tts/speak")
+
+
+def test_brain_url_normalization():
+    assert _normalize_brain_url("http://brain:8000/v1") == "http://brain:8000/v1/chat/completions"
+    assert _normalize_brain_url("http://brain:8000/v1/") == "http://brain:8000/v1/chat/completions"
+    assert _normalize_brain_url("http://brain:8000/v1/chat/completions") == "http://brain:8000/v1/chat/completions"
+    assert _normalize_brain_url("http://brain:8000/v1/chat/completions/") == "http://brain:8000/v1/chat/completions"
+    assert _normalize_brain_url("") == ""
+
+    # Test in parse_options
+    opts = parse_options({"llm_brain_url": "http://brain:8000/v1"})
+    assert opts.llm_brain_url == "http://brain:8000/v1/chat/completions"
+
+    # Test in BrainOpenAIProvider.__init__
+    prov = BrainOpenAIProvider("http://brain:8000/v1", "gemini-3.8-flash")
+    assert prov.url == "http://brain:8000/v1/chat/completions"
+
+
+def test_tts_defaults_and_validation():
+    o = Options()
+    assert o.remote_tts_entity == "tts.google_ai_tts"
+    assert o.remote_tts_voice == "laomedeia"
+    assert VOICE_RE.match("laomedeia")
+
+    # Invalid voice falls back to laomedeia
+    opts = parse_options({"remote_tts_voice": "invalid voice with spaces!!!"})
+    assert opts.remote_tts_voice == "laomedeia"
+
+
+def test_greek_fallback():
+    # Natural Greek flow with dict
+    fb = greek_fallback({"kwh": 14.5, "cost_eur": 2.45, "starts": 6, "next_text": "μέρα ON"})
+    assert "14,5 κιλοβατώρες" in fb
+    assert "2,45 ευρώ" in fb
+    assert "6 εκκινήσεις" in fb
+    assert "μέρα ON" in fb
+    assert "παύση" not in fb
+
+    # Paused text handling
+    fb_pause = greek_fallback({"kwh": 14.5, "cost_eur": 2.45, "starts": 6, "next_text": "παύση μέχρι συνέχιση"})
+    assert "Η αυτόματη βελτιστοποίηση είναι σε προσωρινή παύση." in fb_pause
+    assert "παύση μέχρι συνέχιση" not in fb_pause
+
+    # Paused until set
+    fb_until = greek_fallback({"paused_until": "2026-11-12T10:00:00"})
+    assert "Η αυτόματη βελτιστοποίηση είναι σε προσωρινή παύση." in fb_until
+
+    # String fallback replacement
+    raw = "Καλημέρα. Χθες είχαμε κατανάλωση. παύση μέχρι συνέχιση."
+    cleaned = greek_fallback(raw)
+    assert cleaned == "Καλημέρα. Χθες είχαμε κατανάλωση. Η αυτόματη βελτιστοποίηση είναι σε προσωρινή παύση."
 
 
 def test_notifier_defers_morning_tts_until_conditions():

@@ -11,13 +11,54 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
+from .config import _normalize_brain_url
+
 log = logging.getLogger(__name__)
 NUM_RE = re.compile(r"\d+(?:[.,]\d+)?")
 SYSTEM_PROMPT = (
-    "Είσαι βοηθός που ξαναγράφει σύντομες αναφορές αντλίας θερμότητας σε φυσικά, ζεστά ελληνικά. "
+    "Είσαι βοηθός που ξαναγράφει σύντομες αναφορές αντλίας θερμότητας σε φυσικά, ζεστά ελληνικά κατάλληλα για εκφώνηση HD φωνής (Google AI TTS). "
     "ΜΗΝ προσθέτεις, αφαιρείς ή αλλάζεις αριθμούς, συμπεράσματα ή συστάσεις. Μην εφευρίσκεις τίποτα. "
+    "Χρησιμοποίησε φυσική ροή λόγου, απέφευγε σύμβολα, ωμές συντομογραφίες (όπως kWh, γράψε κιλοβατώρες) και άβολα σημεία στίξης. "
     "Χωρίς markdown, χωρίς λίστες. Μέχρι 3 προτάσεις."
 )
+
+
+def greek_fallback(summary: Any) -> str:
+    """Natural Greek voice readout fallback for summary reports.
+
+    Formats numbers with natural Greek speech flow and avoids robotic fragments like 'παύση μέχρι συνέχιση.'
+    """
+    if isinstance(summary, dict):
+        kwh = summary.get("kwh")
+        cost = summary.get("cost_eur")
+        starts = summary.get("starts")
+        paused_until = summary.get("paused_until")
+        next_text = summary.get("next_text") or summary.get("next_action") or ""
+
+        parts = []
+        if kwh is not None:
+            parts.append("Καλημέρα.")
+            kwh_str = fmt(kwh, 1)
+            cost_str = f", περίπου {fmt(cost, 2)} ευρώ" if cost is not None else ""
+            starts_str = f", με {fmt(starts)} εκκινήσεις" if starts is not None else ""
+            parts.append(f"Χθες η αντλία κατανάλωσε {kwh_str} κιλοβατώρες{cost_str}{starts_str}.")
+
+        if paused_until:
+            parts.append("Η αυτόματη βελτιστοποίηση είναι σε προσωρινή παύση.")
+        elif next_text:
+            if "παύση μέχρι συνέχιση" in next_text:
+                parts.append("Η αυτόματη βελτιστοποίηση είναι σε προσωρινή παύση.")
+            else:
+                parts.append(f"{next_text.rstrip('.')}.")
+        if not parts:
+            parts.append("Καλημέρα. Η αναφορά της αντλίας θερμότητας είναι έτοιμη.")
+        return " ".join(parts).strip()
+
+    text = str(summary or "")
+    if "παύση μέχρι συνέχιση" in text:
+        text = text.replace("παύση μέχρι συνέχιση.", "Η αυτόματη βελτιστοποίηση είναι σε προσωρινή παύση.")
+        text = text.replace("παύση μέχρι συνέχιση", "Η αυτόματη βελτιστοποίηση είναι σε προσωρινή παύση.")
+    return text.strip()
 
 
 def fmt(v: Any, nd: int = 2, suffix: str = "") -> str:
@@ -79,7 +120,9 @@ class BrainOpenAIProvider(WordingProvider):
     name = "brain_openai"
 
     def __init__(self, url: str, model: str, timeout: float = 30.0, session: Optional[requests.Session] = None):
-        self.url, self.model, self.timeout = url, model, timeout
+        self.url = _normalize_brain_url(url)
+        self.model = model
+        self.timeout = timeout
         self.s = session or requests.Session()
 
     def rephrase(self, draft: str) -> Optional[str]:
@@ -167,7 +210,7 @@ class Reporter:
                     f"_{excl} · διατύπωση: {source}_")
         short = (f"{cycle_date} · {fmt(kpi.get('kwh'), 1)} kWh · {fmt(kpi.get('kwh_per_hdd'), 2)} kWh/HDD · "
                  f"{fmt(kpi.get('starts'))} εκκ.")[:255]
-        tts_draft = (f"Καλημέρα. Χθες η αντλία κατανάλωσε {fmt(kpi.get('kwh'), 1)} κιλοβατώρες, περίπου "
-                     f"{fmt(kpi.get('cost_eur'), 2)} ευρώ, με {fmt(kpi.get('starts'))} εκκινήσεις. {next_text}.")
+        tts_draft = greek_fallback({"kwh": kpi.get("kwh"), "cost_eur": kpi.get("cost_eur"),
+                                    "starts": kpi.get("starts"), "next_text": next_text})
         tts, _ = self._word(tts_draft)
         return {"title": title, "markdown": markdown, "short": short, "tts": tts[:600], "wording": source}

@@ -15,10 +15,25 @@ log = logging.getLogger(__name__)
 HHMM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 NOTIFY = re.compile(r"^notify\.[a-z0-9_]{1,64}$")
 PERSON_RE = re.compile(r"^person\.[a-z0-9_]{1,64}$")
+VOICE_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 SECRET_FIELDS = {"anthropic_api_key", "remote_ha_token"}
 LLM_PROVIDERS = ("brain_openai", "anthropic", "none")
 # Site-specific values (remote URL, devices, people, notify targets) are NOT defaulted here: the repo is public.
 # They are set in the add-on options at install time.
+
+
+def _normalize_brain_url(url: str) -> str:
+    """Normalize Brain OpenAI URL so /v1 or /v1/ automatically appends /chat/completions."""
+    if not url:
+        return ""
+    u = url.strip()
+    if u.endswith("/chat/completions") or u.endswith("/chat/completions/"):
+        return u.rstrip("/")
+    if u.endswith("/v1"):
+        return u + "/chat/completions"
+    if u.endswith("/v1/"):
+        return u + "chat/completions"
+    return u
 
 
 def is_safe_remote_url(url: str) -> bool:
@@ -54,8 +69,8 @@ class Options:
     person_entity: str = ""
     remote_ha_url: str = ""
     remote_ha_token: str = ""
-    remote_tts_entity: str = "tts.google_cloud"
-    remote_tts_voice: str = "el-GR-Chirp3-HD-Laomedeia"
+    remote_tts_entity: str = "tts.google_ai_tts"
+    remote_tts_voice: str = "laomedeia"
     remote_media_player: str = ""
     remote_tts_language: str = "el-GR"
     remote_work_hours: str = "09:00-18:00"
@@ -92,8 +107,14 @@ def parse_options(raw: Dict[str, Any]) -> Options:
         o.person_entity = ""
     if o.llm_provider not in LLM_PROVIDERS:
         o.llm_provider = "none"
-    if o.llm_brain_url and not re.match(r"^https?://[A-Za-z0-9.\-:]+(/.*)?$", o.llm_brain_url):
-        o.llm_brain_url = ""
+    if o.llm_brain_url:
+        if not re.match(r"^https?://[A-Za-z0-9.\-:]+(/.*)?$", o.llm_brain_url):
+            o.llm_brain_url = ""
+        else:
+            o.llm_brain_url = _normalize_brain_url(o.llm_brain_url)
+    if o.remote_tts_voice and (not isinstance(o.remote_tts_voice, str) or not VOICE_RE.match(o.remote_tts_voice)):
+        log.warning("invalid remote_tts_voice -> laomedeia")
+        o.remote_tts_voice = "laomedeia"
     if not re.match(r"^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$", o.remote_work_hours or ""):
         log.warning("invalid remote_work_hours -> 09:00-18:00")
         o.remote_work_hours = "09:00-18:00"
